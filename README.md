@@ -50,6 +50,15 @@ The code examples provided are fairly general and allow for a wide range of appl
 An example world generator for simplistic model dynamics is provided, but in practise it is recommend to rely
 on fully machine learned market simulators such as https://arxiv.org/abs/2112.06823
 
+## Installation
+
+<ul>
+    <li>Pip install <tt>cdxbasics</tt> version 0.1 or higher
+    <li>Install TensorFlow 2.7 or higher
+    <li>Download this git directory in your Python path such that <tt>import deephedging.world</tt> works.
+    <li>Open notebooks/trainer.ipynb</tt> and run it. If it 
+</ul>
+
 ## Industrial Machine Learning Code Philosophy
 
 We attempted to provide a base for industrial code development.
