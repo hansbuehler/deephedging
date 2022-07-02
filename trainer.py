@@ -10,41 +10,41 @@ June 30, 2022
 
 import time as time
 import numpy as np
-from packages.cdxbasics.cdxbasics.prettydict import PrettyDict as pdct
-from packages.cdxbasics.cdxbasics.dynaplot import figure
+from cdxbasics.prettydict import PrettyDict as pdct
+from cdxbasics.dynaplot import figure
 from .base import Logger, Config, tf, npCast, fmt_seconds, mean, err
 from .plot_training import Plot_Loss_By_Epoch, Plot_Utility_By_Epoch, Plot_Returns_By_Percentile, Plot_Returns_By_Spot_Ret, Plot_Utility_By_CumPercentile, Plot_Activity_By_Step
 _log = Logger(__file__)
 
-class Monitor(tf.keras.callbacks.Callback):
+class NotebookMonitor(tf.keras.callbacks.Callback):
     """
     Monitors progress of our training and displays the result
     in a jupyter notebook with dynamic graphing.    
     """
     
-    def __init__(self, gym, world, val_world, result0, epochs, batch_size, config ):
+    def __init__(self, gym, world, val_world, result0, epochs, batch_size, time_out, config ):# NOQA
         tf.keras.callbacks.Callback.__init__(self)
-        self.time_out         = config.train("time_out", None, int, help="Timeout in seconds. None for no timeout.")
-        self.time_refresh     = config.visual("time_refresh", 20, int, help="Time refresh interval for visualizations" )
-        self.epoch_refresh    = config.visual("epoch_refresh", 10, int, help="Epoch fefresh frequency for visualizations" )        
-        self.fig_row_size     = config.visual.fig("row_size", 5, int, "Plot size of a row")
-        self.fig_col_size     = config.visual.fig("col_size", 5, int, "Plot size of a column")
-        self.fig_col_nums     = config.visual.fig("col_nums", 6, int, "Number of columbs")
-        self.err_dev          = config.visual("err_dev", 1., float, help="How many standard errors to add to loss to assess best performance" )   
-        self.lookback_window  = config.visual("lookback_window", 30, int, "Lookback window for determining y min/max")
-        self.show_epochs      = config.visual("show_epochs", 100, int,  "Maximum epochs displayed")
-        self.bins             = config.visual("bins", 200, int, "How many x to plot")
-        self.pcnt_lo          = config.visual("pcnt_lo", 0.5, float, "Lower percentile upper end to compute average performance over for by step action analysis")
-        self.pcnt_hi          = config.visual("pcnt_hi", 0.5, float, "Upper percentile lower end to compute average performance over for by step action analysis")
+        self.time_refresh     = config("time_refresh", 20, int, help="Time refresh interval for visualizations" )
+        self.epoch_refresh    = config("epoch_refresh", 10, int, help="Epoch fefresh frequency for visualizations" )        
+        self.fig_row_size     = config.fig("row_size", 5, int, "Plot size of a row")
+        self.fig_col_size     = config.fig("col_size", 5, int, "Plot size of a column")
+        self.fig_col_nums     = config.fig("col_nums", 6, int, "Number of columbs")
+        self.err_dev          = config("err_dev", 1., float, help="How many standard errors to add to loss to assess best performance" )   
+        self.lookback_window  = config("lookback_window", 30, int, "Lookback window for determining y min/max")
+        self.show_epochs      = config("show_epochs", 100, int,  "Maximum epochs displayed")
+        self.bins             = config("bins", 200, int, "How many x to plot")
+        self.pcnt_lo          = config("confidence_pcnt_lo", 0.5, float, "Lower percentile for confidence intervals")
+        self.pcnt_hi          = config("confidence_pcnt_hi", 0.5, float, "Upper percentile for confidence intervals")
         
         self.gym              = gym
         self.world            = world
         self.val_world        = val_world
         self.result0          = result0
-        self.P                = np.array( world.tf_sample_weights )[:,0]
-        self.val_P            = np.array( val_world.tf_sample_weights )[:,0]
+        self.P                = world.sample_weights
+        self.val_P            = val_world.sample_weights
         self.started          = False
         self.epochs           = epochs
+        self.time_out         = time_out
         self.time0            = time.time()
         self.time_last        = -1
         self.batch_size       = batch_size if not batch_size is None else 32
@@ -77,7 +77,7 @@ class Monitor(tf.keras.callbacks.Callback):
         self.utilities.val_util       = []
         self.utilities.val_util0      = []
         
-        print("\r\33[2KDeep Hedging Engine: preparing run for %ld epochs for %ld samples / %ld validation samples ... " % (epochs, world.nSamples, self.val_world.nSamples), end='')
+        print("\r\33[2KDeep Hedging Engine: warming up for %ld epochs and %ld samples / %ld validation samples ... " % (epochs, world.nSamples, self.val_world.nSamples), end='')
 
     def on_epoch_begin( self, epoch, logs = None ):# NOQA
         if self.epoch == -1:
@@ -90,6 +90,8 @@ class Monitor(tf.keras.callbacks.Callback):
         self.epoch       = epoch
 
         # losses
+        # Note that we apply world.sample_weights to all calculations
+        # so we are in sync with keras.fit()
         self.losses.batch.append(   float( logs['loss_default_loss'] ) ) # we read the metric instead of 'loss' as this appear to be weighted properly
         self.losses.full.append(    mean(self.P, self.full_result.loss) )
         self.losses.val.append(     mean(self.val_P, self.val_result.loss) )
@@ -128,10 +130,14 @@ class Monitor(tf.keras.callbacks.Callback):
         self.plot()
         
     def plot(self):
-        """ Update our plots """
+        """ 
+        Update our plots
+        Create figures and subplots if not done so before
+        """
         assert self.epoch >= 0, "Do not call me before the first epoch"
         
         if self.fig is None:
+            print("\r\33[2", end='')  # clear any existing messages
             # create figure
             self.fig                        = figure(row_size=self.fig_row_size, col_size=self.fig_col_size, col_nums=self.fig_col_nums, tight=True )
             
@@ -220,7 +226,66 @@ class Monitor(tf.keras.callbacks.Callback):
         self.plot()
         self.gym.set_weights( self.best_weights )
         print("\n Status: %s\n" % self.why_stopped )
+
+
+class NoMonitor(tf.keras.callbacks.Callback):
+    """ Does nothing """
+    
+    def __init__(self, gym, world, val_world, result0, epochs, batch_size, time_out, config ):# NOQA
+        tf.keras.callbacks.Callback.__init__(self)
+        self.epochs           = epochs
+        self.why_stopped      = "Ran all %ld epochs" % epochs
+
+    def on_epoch_begin( self, epoch, logs = None ):# NOQA
+        pass
+            
+    def on_epoch_end( self, epoch, logs = None ):
+        """ Called when an epoch ends """
+        self.epoch       = epoch
         
+    def plot(self):# NOQA
+        pass
+              
+    def finalize( self, set_best = True ):# NOQA
+        pass
+
+# =========================================================================================
+# Factory
+# =========================================================================================
+
+def MonitorFactory( gym, world, val_world, result0, epochs, batch_size, time_out, config ):
+    """
+    Creates a monitor based on a config file. A monitor prints progress information during training.
+
+    Parameters
+    ----------
+        gym       : VanillaDeepHedgingGym or similar interface
+        world     : world with training data
+        val_world : world with validation data (e.g. computed using world.clone())
+        result0   : gym(world)
+        epochs    : number of epochs
+        batch_size: batch_size
+        time_out  : in seconds
+        config    : config
+
+    Returns
+    -------
+        An monitor.
+    """    
+    monitor_type  = config("monitor_type", "notebook", str, "What kind of monitor to instantiate")
+    monitor       = None
+    if monitor_type == "notebook":
+        monitor = NotebookMonitor( gym, world, val_world, result0, epochs, batch_size, time_out, config  )
+    elif monitor_type == "none":
+        monitor = NoMonitor( gym, world, val_world, result0, epochs, batch_size, time_out, config  )
+    
+    _log.verify( not monitor is None, "Unknnown monitor type '%s'", monitor_type )
+    return monitor
+
+# =========================================================================================
+# training
+# =========================================================================================
+
 def default_loss( y_true,y_pred ):     
     """ Default loss: ignore y_true """
     return y_pred
@@ -233,21 +298,38 @@ def train(  gym,
     """ 
     Train our deep hedging model with with the provided world.
     Main training loop.
+    
+    
+    Parameters
+    ----------
+        gym       : VanillaDeepHedgingGym or similar interface
+        world     : world with training data
+        val_world : world with validation data (e.g. computed using world.clone())
+        config    : configuration
+        verbose   : how much detail to print
+
+    Returns
+    -------
+        Nothing.        
+            Run gym(world) to get trained data for the full data set.
+            The gym itself contains the weights of the trained agents.
     """
     #tf.debugging.enable_check_numerics()
     
     optimzier        = config.train("optimizer", "adam", help="Optimizer" )
     batch_size       = config.train("batch_size", None, help="Batch size")
     epochs           = config.train("epochs", 100, int, help="Epochs")
+    time_out         = config.train("time_out", None, int, help="Timeout in seconds. None for no timeout.")
     run_eagerly      = config.train("run_eagerly", False, bool, "Keras model run_eagerly")
     result0          = gym(world.tf_data)
-    monitor          = Monitor( gym=gym, 
-                                world=world, 
-                                val_world=val_world,
-                                result0=result0, 
-                                epochs=epochs, 
-                                batch_size=batch_size, 
-                                config=config )
+    monitor          = MonitorFactory(  gym=gym, 
+                                        world=world, 
+                                        val_world=val_world,
+                                        result0=result0, 
+                                        epochs=epochs, 
+                                        batch_size=batch_size, 
+                                        time_out=time_out,
+                                        config=config.visual )
  
     gym.compile(    optimizer        = optimzier, 
                     loss             = dict( loss=default_loss ),

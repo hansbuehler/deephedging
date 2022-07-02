@@ -44,16 +44,19 @@ class SimpleWorld_Spot_ATM(object):
                 per_path : dict - Dictionary of features valid per path
                                             
         tf_data : dict
-            Returns a dictionary of tensors for the use of gym() or gym.fit()
+            Returns a dictionary of TF tensors of 'data' for the use of gym.call() or train()
 
         tf_y : tf.Tensor
-            y data for gym.fit()
+            y data for gym.call() or train(), usually a dummy vector.
+            
+        sample_weights : np.ndarray
+            sample weights for manual calculations outside tensorflow
+            Dimension (nSamples,)
             
         tf_sample_weights : tf.Tensor:
-            sample weights for gym.fit()
+            sample weights for train()
+            Dimension (nSamples,1) c.f. https://stackoverflow.com/questions/60399983/how-to-create-and-use-weighted-metrics-in-keras
 
-        tf_sample_weights
-            
         diagnostics : dict
             Dictionary of diagnostics, e.g. the hidden drift and realized vol
             of the asset (numpy)
@@ -362,9 +365,14 @@ class SimpleWorld_Spot_ATM(object):
                 )
             )
         
-        self.tf_y      = tf.zeros((nSamples,), dtype=self.dtype)
+        # generating sample weights
+        # the tf_sample_weights is passed to keras train and must be of size [nSamples,1]
+        # https://stackoverflow.com/questions/60399983/how-to-create-and-use-weighted-metrics-in-keras
+        self.sample_weights = np.full((nSamples,1),1./float(nSamples))
         self.tf_sample_weights \
-                       = tf.constant( np.full((nSamples,1),1./float(nSamples)), dtype=self.dtype)   # must be of size [nSamples,1] https://stackoverflow.com/questions/60399983/how-to-create-and-use-weighted-metrics-in-keras
+                       = tf.constant( self.sample_weights, dtype=self.dtype)   # must be of size [nSamples,1] https://stackoverflow.com/questions/60399983/how-to-create-and-use-weighted-metrics-in-keras
+        self.sample_weights = self.sample_weights.reshape((nSamples,))
+        self.tf_y      = tf.zeros((nSamples,), dtype=self.dtype)
         self.nSteps    = nSteps
         self.nSamples  = nSamples
         self.nInst     = 1 if strike <= 0. else 2
@@ -401,7 +409,7 @@ class SimpleWorld_Spot_ATM(object):
         return SimpleWorld_Spot_ATM( config )
 
     def plot(self, config = Config(), **kwargs ):
-        """ Plot simple world.  """
+        """ Plot simple world """
         
         config.update(kwargs)
         col_size     = config.fig("col_size", 5, int, "Figure column size")
@@ -705,9 +713,14 @@ class SimpleWorld_Stock_Option(object):
                 spots1 = spots   # spots including nSteps (e.g. maturity)
             )
         
-        self.tf_y      = tf.zeros((nSamples,), dtype=self.dtype)
+        # generating sample weights
+        # the tf_sample_weights is passed to keras train and must be of size [nSamples,1]
+        # https://stackoverflow.com/questions/60399983/how-to-create-and-use-weighted-metrics-in-keras
+        self.sample_weights = np.full((nSamples,1),1./float(nSamples))
         self.tf_sample_weights \
-                       = tf.constant( np.full((nSamples,1),1./float(nSamples)), dtype=self.dtype)   # must be of size [nSamples,1] https://stackoverflow.com/questions/60399983/how-to-create-and-use-weighted-metrics-in-keras
+                       = tf.constant( self.sample_weights, dtype=self.dtype)   # must be of size [nSamples,1] https://stackoverflow.com/questions/60399983/how-to-create-and-use-weighted-metrics-in-keras
+        self.sample_weights = self.sample_weights.reshape((nSamples,))
+        self.tf_y      = tf.zeros((nSamples,), dtype=self.dtype)
         self.nSteps    = nSteps
         self.nSamples  = nSamples
         self.nInst     = 2
