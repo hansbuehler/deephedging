@@ -9,10 +9,10 @@ June 30, 2022
 @author: hansbuehler
 """
 
-from packages.cdxbasics.cdxbasics.logger import Logger
-from packages.cdxbasics.cdxbasics.config import Config # NOQA
-from packages.cdxbasics.cdxbasics.prettydict import PrettyOrderedDict as pdct # NOQA
-from packages.cdxbasics.cdxbasics.util import isAtomic
+from cdxbasics.logger import Logger
+from cdxbasics.config import Config # NOQA
+from cdxbasics.prettydict import PrettyOrderedDict as pdct # NOQA
+from cdxbasics.util import isAtomic
 import numpy as np
 import tensorflow as tf
 import math as math

@@ -15,7 +15,7 @@ _log = Logger(__file__)
 class VanillaDeepHedgingGym(tf.keras.Model):
     """ 
     Vanilla periodic policy search Deep Hedging engine https://arxiv.org/abs/1802.03042 
-    Hans Buehler, Dec 2022
+    Hans Buehler, June 2022
     """
     
     def __init__(self, config : Config, name : str = "VanillaDeepHedging", dtype = dh_dtype ):
@@ -68,14 +68,16 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         Parameters
         ----------
             data : dict
-                The data for the gym. This data contains
-                    market, hedges :          the returns of the hedges, per step, per instrument
-                    market, cost:             proportional cost for trading, per step, per instrument
-                    market, ubnd_a and lbnd_a : min max action, per step, per instrument
-                    market, payoff:           terminal payoff of the underlying portfolio
+                The data for the gym.
+                It takes the following data with M=number of time steps, N=number of hedging instruments.
+                First coordinate is number of samples in this batch.
+                    market, hedges :            (,M,N) the returns of the hedges, per step, per instrument
+                    market, cost:               (,M,N) proportional cost for trading, per step, per instrument
+                    market, ubnd_a and lbnd_a : (,M,N) min max action, per step, per instrument
+                    market, payoff:             (,M) terminal payoff of the underlying portfolio
                     
-                    features, per_step:       list of features per step
-                    features, per_sample:     list of features for each sample
+                    features, per_step:       (,M,N) list of features per step
+                    features, per_sample:     (,M) list of features for each sample
                     
             training : bool, optional
                 See tensorflow documentation
@@ -85,15 +87,15 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             dict:
             This function returns analaytics of the performance of the agent
             on the path as a dictionary. Each is returned per sample
-                utiliy:          primary objective to maximize
-                utiliy0:         objective without hedging
-                loss:            -utility-utility0
-                payoff:          terminal payoff 
-                pnl:             mid-price pnl of trading (e.g. ex cost)
-                cost:            cost of trading
-                gains:           total gains: payoff + pnl - cost 
-                actions:         actions, per step, per path
-                deltas:          deltas, per step, per path
+                utiliy:          (,) primary objective to maximize
+                utiliy0:         (,) objective without hedging
+                loss:            (,) -utility-utility0
+                payoff:          (,) terminal payoff 
+                pnl:             (,) mid-price pnl of trading (e.g. ex cost)
+                cost:            (,) cost of trading
+                gains:           (,) total gains: payoff + pnl - cost 
+                actions:         (,M,N) actions, per step, per path
+                deltas:          (,M,N) deltas, per step, per path
         """
         _log.verify( isinstance(data, Mapping), "'data' must be a dictionary type. Found type %s", type(data ))
         assert not self.agent is None and not self.utility is None, "build() not called"

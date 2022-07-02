@@ -9,7 +9,7 @@ June 30, 2022
 """
 
 from deephedging.base import Logger, Config, dh_dtype, tf, tfCast, pdct, tf_dict
-from packages.cdxbasics.cdxbasics.dynaplot import figure, colors_tableau
+from cdxbasics.dynaplot import figure, colors_tableau
 import numpy as np
 import math as math
 #from tqdm import tqdm
@@ -93,7 +93,7 @@ class SimpleWorld_Spot_ATM(object):
         # spot
         nSteps     = config("steps", 10, int, help="Number of time steps")
         nSamples   = config("samples", 1000, int, help="Number of samples")
-        seed       = config("seed", 2312414312, int, help="Number of samples")
+        seed       = config("seed", 2312414312, int, help="Random seed")
         nIvSteps   = config("invar_steps", 5, int, help="Number of steps ahead to sample from invariant distribution")
         dt         = config("dt", 1./50., float, help="Time per timestep.", help_default="One week (1/50)")
         cost_s     = config("cost_s", 0.0002, float, help="Trading cost spot")
@@ -113,7 +113,7 @@ class SimpleWorld_Spot_ATM(object):
 
         # option
         # set strike == 0 to turn off
-        strike    = config("strike", 1.,     float, help="Realtive strike. Set to zero to turn off option")
+        strike    = config("strike", 1.,     float, help="Relative strike. Set to zero to turn off option")
         ttm_steps = config("ttm_steps", 4,   int, help="Time to maturity of the option; in steps")
         cost_v    = config("cost_v", 0.02, float, help="Trading cost vega")
         cost_p    = config("cost_p", 0.0005, float, help="Trading cost for the option on top of delta and vega cost")
@@ -245,6 +245,7 @@ class SimpleWorld_Spot_ATM(object):
 
         # instruments
         # ----------
+        
         dS         = spot[:,nSteps][:,np.newaxis] - spot[:,:nSteps]
         cost_dS    = spot[:,:nSteps] * cost_s
         if strike <= 0.:

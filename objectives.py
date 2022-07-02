@@ -3,7 +3,6 @@
 Deep Hedging Objectives
 -----------------------
 Objectives, mostly monetary utilities see forthcoming book learning-to-trade.com
-
 June 30, 2022
 @author: hansbuehler
 """
@@ -34,6 +33,8 @@ class MonetaryUtility(tf.keras.layers.Layer):
             Tensor flow call to evaluate the utility for a given environment
         compute()
             Computes utility and its derivative after training.
+            
+    Hans Buehler, June 2022
     """
     
     Default_features = [ 'price', 'delta', 'time_left' ]

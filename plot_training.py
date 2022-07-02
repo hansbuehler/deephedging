@@ -10,8 +10,8 @@ June 30, 2022
 
 import numpy as np
 import math as math
-from packages.cdxbasics.cdxbasics.prettydict import PrettyDict as pdct
-from packages.cdxbasics.cdxbasics.dynaplot import colors_tableau
+from cdxbasics.prettydict import PrettyDict as pdct
+from cdxbasics.dynaplot import colors_tableau
 from .base import Logger, mean_bins, mean_cum_bins, perct_exp
 
 _log = Logger(__file__)
