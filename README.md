@@ -6,9 +6,9 @@ The notebook directory has a number of examples on how to use it. The framework 
 
 The Deep Hedging problem for a horizon $T$ is given as
 <P>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$\max_{a}: U[ \
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$$ \max_{a}: U[ \
         Z_T + \sum_{t=0}^{T-1} a(f_t) \cdot DH_t - | a(f_t)\gamma_t|
-    \ \right]$
+     \ \right]  $$
 <p>
 where  $DH_t:=H_T - H_t$ denotes the vector of returns of the hedging instruments to $T$. Cost are proportional.
 The policy $a$ is a neural network which is fed both pre-computed and live features $f_t$ at each time step.
