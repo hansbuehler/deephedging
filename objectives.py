@@ -64,7 +64,7 @@ class MonetaryUtility(tf.keras.layers.Layer):
         if self.utility in ["mean"]:
             self.y       = tf.Variable( 0., trainable=False )
             config.y.mark_done()  # avoid error message from config.done()
-        elif config.y.is_empty:
+        elif config.y("use_y", False):
             self.y       = tf.Variable( 0., trainable=True, name="OCE_y" )
         else:       
             self.y       = AgentFactory( 1, config.y, dtype=dtype )
