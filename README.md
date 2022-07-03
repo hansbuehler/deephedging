@@ -6,7 +6,7 @@ The notebook directory has a number of examples on how to use it. The framework 
 
 The Deep Hedging problem for a horizon $T$ is given as
 <P>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$\max_{a}: U\left[ \
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$\max_{a}: U[ \
         Z_T + \sum_{t=0}^{T-1} a(f_t) \cdot DH_t - | a(f_t)\gamma_t|
     \ \right]$
 <p>
@@ -74,7 +74,7 @@ on fully machine learned market simulators such as https://arxiv.org/abs/2112.06
 ## Installation
 
 <ul>
-    <li>Pip install <tt>cdxbasics</tt> version 0.1.10 or higher
+    <li>Pip install <tt>cdxbasics</tt> version 0.1.3 or higher
     <li>Install TensorFlow 2.7 or higher
     <li>Install tensorflow_probability 0.15 or higher
     <li>Download this git directory in your Python path such that <tt>import deephedging.world</tt> works.
