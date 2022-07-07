@@ -1,5 +1,6 @@
 # Deep Hedging
 ## Reinforcement Learning for Hedging Derviatives under Market Frictions
+### Beta version. Please report any issues.
 
 This archive contains a sample implementation of of the Deep Hedging (http://deep-hedging.com) framework.
 The notebook directory has a number of examples on how to use it. The framework relies on the pip package cdxbasics.
