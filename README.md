@@ -7,9 +7,9 @@ The notebook directory has a number of examples on how to use it. The framework 
 
 The Deep Hedging problem for a horizon $T$ is given as
 <P>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$$ \max_{a}: U[ \
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$ \max_{a}: U[ \
         Z_T + \sum_{t=0}^{T-1} a(f_t) \cdot DH_t - | a(f_t)\gamma_t|
-     \ \right]  $$
+     \ \right]  $
 <p>
 where  $DH_t:=H_T - H_t$ denotes the vector of returns of the hedging instruments to $T$. Cost are proportional.
 The policy $a$ is a neural network which is fed both pre-computed and live features $f_t$ at each time step.
@@ -43,16 +43,15 @@ The payoff $Z_T$ at maturity. Since this is at or part the expiry of the product
 Returns of the hedges, i.e. the vector $DH_t:=H_T - H_t$. That means $H_t$ is the model price at time $t$, and $H_T$ is the price at time $T$. 
 In most applications $T$ is chosen such that $H_T$
 is the actual payoff.<br>
-    For example, if $S_t$ is spot, ${\sigma_t}$ is an implied volatility,  $\tau$ is the time-to-maturity, and
-    $k$ a relative strike, then $H_t = \mathrm{BSCall}( S_t, \sigma_t; \tau, kS_t )$ and $H_T = ( S_{t+\tau} / S_t - k )^+$.
+    For example, if $S_t$ is spot, $w_t$ is the implied volatility at $t$,  $T$ is time-to-maturity, and
+    $k$ a relative strike, then $H_t = \mathrm{BSCall}( S_t, w_t; T, kS_t )$ and $H_T = ( S_{t+T} / S_t - k )^+$.
 <br>&nbsp;
 </li>
 <li>
 <tt>data['martket']['payoff']</tt> (:,M,N)<br>
 Cost $\gamma_t$ of trading the hedges in $t$ for proportional cost $c_t(a) = \gamma_t\cdot |a|$. 
 More advanced implementations allow to pass the cost function itself as a tensorflow model.<br>
-    In the simple setting an example for the cost of trading a vanilla call could be $\gamma_t = \gamma^\mathrm{Delta} \mathrm{BSDelta}(t,\cdots) 
-    + \gamma^\mathrm{Vega}  \mathrm{BSVega}(t,\cdots)$.
+    In the simple setting an example for the cost of trading a vanilla call could be $\gamma_t = \gamma^D\, BSDelta(t,\cdots)+ \gamma^V\,BSVega(t,\cdots)$.
 <br>&nbsp;
 </li><li>
 <tt>data['martket']['unbd_a'], data['martket']['lnbd_a']</tt> (:,M,N)<br>
