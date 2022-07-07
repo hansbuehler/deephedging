@@ -129,12 +129,11 @@ We attempted to provide a base for industrial code development.
     <li><b>world.SimpleWorld_Spot_ATM</b> class<br>
          Simple World with one asset and one floating ATM option.
     The asset has stochastic volatility, and a mean-reverting drift.
-    The implied volatility of the asset is not the realized volatility, allowing to re-create some results from https://arxiv.org/abs/2103.11948
-    
+    The implied volatility of the asset is not the realized volatility, allowing to re-create some results from https://arxiv.org/abs/2103.11948 
+    <br>
     Set the <tt>black_scholes</tt> boolean config flag to <tt>True</tt> to turn the world into a simple black & scholes world, with no traded option.
     Otherwise, use <tt>no_stoch_vol</tt> to turn off stochastic vol, and <tt>no_stoch_drift</tt> to turn off the stochastic mean reverting drift of the asset.
     If both are True, then the market is Black & Scholes, but the option can still be traded for hedging.
-    
         <br>
     See <tt>notebooks/simpleWorld_Spot_ATM.ipynb</tt>
       <br>&nbsp;  
