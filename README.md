@@ -74,7 +74,7 @@ on fully machine learned market simulators such as https://arxiv.org/abs/2112.06
 ## Installation
 
 <ul>
-    <li>Pip install <tt>cdxbasics</tt> version 0.1.3 or higher
+    <li>Pip install <tt>cdxbasics</tt> version 0.1.42 or higher
     <li>Install TensorFlow 2.7 or higher
     <li>Install tensorflow_probability 0.15 or higher
     <li>Download this git directory in your Python path such that <tt>import deephedging.world</tt> works.
