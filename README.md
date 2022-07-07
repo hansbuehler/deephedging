@@ -129,6 +129,11 @@ We attempted to provide a base for industrial code development.
          Simple World with one asset and one floating ATM option.
     The asset has stochastic volatility, and a mean-reverting drift.
     The implied volatility of the asset is not the realized volatility, allowing to re-create some results from https://arxiv.org/abs/2103.11948
+    
+    Set the <tt>black_scholes</tt> boolean config flag to <tt>True</tt> to turn the world into a simple black & scholes world, with no traded option.
+    Otherwise, use <tt>no_stoch_vol</tt> to turn off stochastic vol, and <tt>no_stoch_drift</tt> to turn off the stochastic mean reverting drift of the asset.
+    If both are True, then the market is Black & Scholes, but the option can still be traded for hedging.
+    
         <br>
     See <tt>notebooks/simpleWorld_Spot_ATM.ipynb</tt>
       <br>&nbsp;  
@@ -344,13 +349,16 @@ only makes sense if the instrument is actually the same per time step, e.g. spot
     </li><li>
         <tt>world.py</tt> contains a world generator <tt>SimpleWorld_Spot_ATM</tt>.
     </li><li>
-    <tt>agents.py</tt> contains an <tt>AgentFactory</tt> which is supposed to create agents on the fly from a <tt>config</tt>.
+    <tt>agents.py</tt> contains an <tt>AgentFactory</tt> which is creates agents on the fly from a <tt>config</tt>.
         Only implementation provided is a simple <tt>FeedForwardAgent</tt>. Typically driven by top level <tt>config.gym.agent</tt>.
+        Is also used by <tt>objectives.py</tt>.
     </li><li>
     <tt>objectives.py</tt> contains an <tt>MonetaryUtility</tt> which implements a range reasonable objectives.
     Typically driven by top level <tt>config.gym.objective</tt>.
     </li><li>
     <tt>plot_training.py</tt> contains code to provide live plots during training when running in a notebook.
+    </li><li>
+    <tt>afents.py</tt> contains code to provide live plots during training when running in a notebook.
     </li><li>
     <tt>gym.py</tt> contains the gym for Deep Hedging, <tt>VanillaDeepHedgingGym</tt>. It is a small script and it is recommended that every user
     reads it.

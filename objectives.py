@@ -7,7 +7,7 @@ June 30, 2022
 @author: hansbuehler
 """
 
-from .base import Logger, Config, tf, dh_dtype
+from .base import Logger, Config, tf, dh_dtype, VariableModel
 from .agents import AgentFactory
 from cdxbasics import PrettyDict as pdct
 from collections.abc import Mapping
@@ -58,17 +58,15 @@ class MonetaryUtility(tf.keras.layers.Layer):
         tf.keras.layers.Layer.__init__(self, name=name, dtype=dtype )
         self.utility    = config("utility","entropy", str, help="Type of monetary utility: mean, exp, exp2, vicky, cvar, quad")
         self.lmbda      = config("lmbda", 1., float, help="Risk aversion")
-        self.y_model    = False
         _log.verify( self.lmbda > 0., "'lmnda' must be positive. Use utility 'mean' for zero lambda")
         
         if self.utility in ["mean"]:
             self.y       = tf.Variable( 0., trainable=False )
             config.y.mark_done()  # avoid error message from config.done()
         elif config.y("use_y", False):
-            self.y       = tf.Variable( 0., trainable=True, name="OCE_y" )
+            self.y       = VariableModel( 0., name="OCE_y", dtype=self.dtype  )
         else:       
-            self.y       = AgentFactory( 1, config.y, dtype=dtype )
-            self.y_model = True
+            self.y       = AgentFactory( 1, config.y, per_step=False, name="OCE_y", dtype=dtype )
         config.done() # all config read
         
     @property
@@ -103,9 +101,9 @@ class MonetaryUtility(tf.keras.layers.Layer):
         pnl      = data['pnl']
         cost     = data['cost']
         X        = payoff + pnl - cost
-        return self.compute( X = X, features_time_0 = features )['u']
+        return self.compute( X = X, features_time_0 = features, training=training )['u']
         
-    def compute( self, X : tf.Tensor, features_time_0 : dict = None ) -> dict:
+    def compute( self, X : tf.Tensor, features_time_0 : dict = None, training : bool = False ) -> dict:
         """
         Computes
             u(X+y) - y
@@ -118,6 +116,8 @@ class MonetaryUtility(tf.keras.layers.Layer):
         features_time_0 : dict
             features required for 'y' if so specified.
             Check self.features
+        training : bool, optional
+            Whether we are in training model
     			
         Returns
         -------
@@ -126,7 +126,7 @@ class MonetaryUtility(tf.keras.layers.Layer):
         """ 
         _log.verify( isinstance(features_time_0, Mapping), "'features_time_0' must be a dictionary type. Found type %s", type(features_time_0))
         features_time_0 = features_time_0 if not features_time_0 is None else {}
-        y               = self.y( features_time_0 ) if self.y_model else self.y
+        y               = self.y( features_time_0, training=training ) 
         return utility(self.utility, self.lmbda, X, y=y )
         
 @tf.function  

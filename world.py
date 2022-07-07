@@ -23,7 +23,9 @@ class SimpleWorld_Spot_ATM(object):
     The asset has stochastic volatility, and a mean-reverting drift.
     The implied volatility of the asset is not the realized volatility.
     
-    To use black & scholes mode use hard overwrite black_scholes = True
+    * To use black & scholes mode use hard overwrite black_scholes = True
+    * To turn off stochastic vol use no_stoch_vol = True
+    * To turn off mean reverrsion of the drift set no_stoch_drift = True
 
     Members
     -------
@@ -102,7 +104,9 @@ class SimpleWorld_Spot_ATM(object):
         cost_s     = config("cost_s", 0.0002, float, help="Trading cost spot")
         ubnd_as    = config("ubnd_as", 5., float, help="Upper bound for the number of shares traded at each time step")
         lbnd_as    = config("lbnd_as", -5., float, help="Lower bound for the number of shares traded at each time step")
-        bs_mode    = config("black_scholes", False, bool, help="Hard overwrite to use a black & scholes model with vol 'rvol' and drift 'drift")
+        bs_mode    = config("black_scholes", False, bool, help="Hard overwrite to use a black & scholes model with vol 'rvol' and drift 'drift'. Also turns off the option as a tradable instrument by setting strike = 0.")
+        no_svol    = config("no_stoch_vol", False, bool, help="If true, turns off stochastic realized and implied vol, by setting meanrev_*vol = 0 and volvol_*vol = 0")
+        no_sdrift  = config("no_stoch_drift", False, bool, help="If true, turns off the stochastic drift of the asset, by setting meanrev_drift = 0. and drift_vol = 0")
         _log.verify( nSteps > 0,    "'steps' must be positive; found %ld", nSteps )
         _log.verify( nSamples > 0,  "'samples' must be positive; found %ld", nSamples )
         _log.verify( dt > 0., "dt must be positive; found %g", dt )
@@ -112,7 +116,12 @@ class SimpleWorld_Spot_ATM(object):
         _log.verify( ubnd_as - lbnd_as > 0., "'ubnd_as - lbnd_as' must be positive; found %g", ubnd_as - lbnd_as)
 
         # payoff
-        payoff_f  = config("payoff", lambda spots : - np.maximum( spots[:,-1] - 1., 0. ), help="Payoff function. Parameters is spots[samples,steps+1].", help_default="Short ATM call function")
+        # must either be a function of spots[samples,steps+1], None, or a fixed umber
+        payoff_f  = config("payoff", lambda spots : - np.maximum( spots[:,-1] - 1., 0. ), help="Payoff function with parameter spots[samples,steps+1]. Must return a vector [samples]. You can also use None or a simple float.", help_default="Short ATM call function")
+        if payoff_f is None:
+            payoff_f = lambda x : np.zeros( (x.shape[0], ) )
+        elif isinstance(payoff_f, (int,float)):
+            payoff_f = lambda x : np.full( (x.shape[0],), float(payoff_f) )
 
         # option
         # set strike == 0 to turn off
@@ -165,14 +174,18 @@ class SimpleWorld_Spot_ATM(object):
         # black scholes
         if bs_mode:
             strike    = 0.   # turn off option
-            kappa_m   = 0.   
-            kappa_v   = 0.
-            kappa_i   = 0.
-            xi_m      = 0.
-            xi_v      = 0.
-            xi_i      = 0.
             ttm_steps = 1
             nIvSteps  = 0
+            no_sdrift = True
+            no_svol   = True
+        if no_sdrift:                    
+            kappa_m   = 0.   
+            xi_m      = 0.
+        if no_svol:
+            kappa_v   = 0.
+            kappa_i   = 0.
+            xi_v      = 0.
+            xi_i      = 0.
 
         # pre compute        
         sqrtDt      = math.sqrt(dt)
@@ -209,7 +222,7 @@ class SimpleWorld_Spot_ATM(object):
         ivol[:,0]       = ivol_init
         mrdrift         = 0. * dW_m[:,0]
         expdriftdt      = np.exp( drift * dt )
-        bStochDrift     = kappa_m != 0.
+        bStochDrift     = kappa_m != 0. or xi_m != 0.
         bStochVol       = kappa_v != 0. or xi_v != 0.  or kappa_i != 0. or xi_i != 0.
         
         for j in range(1,nSteps+nIvSteps+ttm_steps):

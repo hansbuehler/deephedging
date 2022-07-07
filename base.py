@@ -173,6 +173,18 @@ def tf_make_dim( tensor : tf.Tensor, dim : int ) -> tf.Tensor:
         tensor = tensor[...,tf.newaxis]
     return tensor
 
+class VariableModel(tf.keras.layers.Layer):
+    """ Simple keras model without input which wraps a trainable variable """
+    
+    def __init__(self, init = 0., name : str = None, dtype : tf.DType = dh_dtype ):
+        """ Initialize ModelVariable """
+        tf.keras.layers.Layer.__init__(self, name=name, dtype=dtype )
+        self.variable     = tf.Variable( init, trainable=True, name=name, dtype=self.dtype )
+        
+    def call( self, dummy_data : dict = None, training : bool = False ) -> tf.Tensor:
+        """ Return variable value """
+        return self.variable
+
 # -------------------------------------------------
 # Basic arithmetics
 # -------------------------------------------------
