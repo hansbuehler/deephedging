@@ -163,7 +163,7 @@ def AgentFactory( nInst : int, config : Config, name : str = None,  per_step : b
     -------
         An agent model
     """    
-    agent_type  = config("agent_type", "feed_forward", str)
+    agent_type  = config("agent_type", "feed_forward", str, "Which network agent type to use")
     agent       = None
     if agent_type == "feed_forward":
         agent = FeedForwardAgent( nInst, config, name=name, per_step=per_step, dtype=dtype )
