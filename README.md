@@ -374,26 +374,40 @@ Deep Hedging was developed using Tensorflow 2.7 on Python 37. The latest version
 
 Deep Hedging uses tensorflow-probability which does <i>not</i> provide a robust dependency to the installed tensorflow version. If you receive an error you will need to make sure manually that it matches to your tensorflow version [here](https://github.com/tensorflow/probability/releases).
 
-Example with GPU, see also below:
-
-        pip install tensorflow==2.6 tensorflow-gpu==2.6 tensorflow_probability==0.14
+In your local environment:
         
-(*) here is a stub which you may want to put ahead of any notebook you use:
+        pip install cdxbasics "tensorflow>=2.7" "tensorflow-gpu>=2.7" tensorflow_probability==0.14
+        
+Here is a stub which you may want to put ahead of any notebook you use (*)
                 
         import tensorflow as tf
         import tensorflow_probability as tfp # ensure this does not fail
         print("TF version %s. Num GPUs Available: %ld" % (tf.__version__, len(tf.config.list_physical_devices('GPU')) ))
+        
+### GPU
+
+In order to run on GPU you must have installed the correct CUDA and cuDNN drivers, see [here](https://www.tensorflow.org/install/source#gpu).
+Once you have identified the correct drivers, use
+
+        conda install -c conda-forge cudatoolkit=11.2 cudnn=8.1
+        
+Run the code above (*) to check whether it picked up your GPU. Make sure you have one on the instance you are working on.
+<i>Note that Deep Hedging does not benefit much from GPU use.</i>
 
 ### AWS SageMaker
 
-For using AWS SageMaker, create a new instance and select the <tt>conda_tensorflow2_p36</tt> enviroment and follow above.
-If you have cloned the [Deep Hedging git directory](https://github.com/hansbuehler/deephedging) via SageMaker, then the <tt>deephedging</tt> directory is <i>not</i> in your include path, even if the directory shows up in your jupyter hub file list. 
+At the time of writing AWS SageMaker does not support TF 2.7. Moreover, it does not support GPUs for TF above 2.3.
+For using 2.6 without GPUs which is faster than 2.3 with GPUs, create a new instance and select the <tt>conda_tensorflow2_p36</tt> enviroment.
 
-        activate tensorflow2_p36
-        pip install tensorflow==2.6 tensorflow-gpu==2.6 tensorflow_probability==0.14 cdxbasics
-
-
-You will need to add the path of your cloned git directory to python import. A simple method is to add the following in a cell ahead of the remaining code, e.g. at the beginning of <tt>notebooks/trainer.ipynb</tt>
+In a terminal type
+        
+        bash
+        conda activate tensorflow2_p36
+        pip install cdxbasics "tensorflow>=2.6" "tensorflow-gpu>=2.6" tensorflow_probability==0.14 
+                
+If you have cloned the [Deep Hedging git directory](https://github.com/hansbuehler/deephedging) via SageMaker, then the <tt>deephedging</tt> directory is <i>not</i> in your include path, even if the directory shows up in your jupyter hub file list. You will need to add the path of your cloned git directory to python import. 
+        
+A simple method is to add the following in a cell ahead of the remaining code, e.g. at the beginning of <tt>notebooks/trainer.ipynb</tt>
 
         import os
         p = os.getcwd()
@@ -404,14 +418,6 @@ You will need to add the path of your cloned git directory to python import. A s
         sys.path.append(p)
         print("Added python path %s" % p)
 
-### GPU
-
-In order to run on GPU you must have installed the correct CUDA and cuDNN drivers, see [here](https://www.tensorflow.org/install/source#gpu).
-Once you have identified the correct drivers, use
-
-        conda install -c conda-forge cudatoolkit=11.2 cudnn=8.1
-        
-Run the code above (*) to check whether it picked up your GPU. Make sure you have one on the instance you are working on.
 
 
 
