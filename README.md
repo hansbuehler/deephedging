@@ -389,6 +389,10 @@ Example with GPU, see also below:
 For using AWS SageMaker, create a new instance and select the <tt>conda_tensorflow2_p36</tt> enviroment and follow above.
 If you have cloned the [Deep Hedging git directory](https://github.com/hansbuehler/deephedging) via SageMaker, then the <tt>deephedging</tt> directory is <i>not</i> in your include path, even if the directory shows up in your jupyter hub file list. 
 
+        activate tensorflow2_p36
+        pip install tensorflow==2.6 tensorflow-gpu==2.6 tensorflow_probability==0.14 cdxbasics
+
+
 You will need to add the path of your cloned git directory to python import. A simple method is to add the following in a cell ahead of the remaining code, e.g. at the beginning of <tt>notebooks/trainer.ipynb</tt>
 
         import os
@@ -405,7 +409,7 @@ You will need to add the path of your cloned git directory to python import. A s
 In order to run on GPU you must have installed the correct CUDA and cuDNN drivers, see [here](https://www.tensorflow.org/install/source#gpu).
 Once you have identified the correct drivers, use
 
-        conda install cudatoolkit=11.2 cudnn=8.1
+        conda install -c conda-forge cudatoolkit=11.2 cudnn=8.1
         
 Run the code above (*) to check whether it picked up your GPU. Make sure you have one on the instance you are working on.
 
