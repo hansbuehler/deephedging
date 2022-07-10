@@ -401,7 +401,7 @@ class NotebookMonitor(tf.keras.callbacks.Callback):
         self.utilities.val_util       = []
         self.utilities.val_util0      = []
         
-        print("\rKDeep Hedging Engine: warming up for %ld epochs and %ld samples (%ld validation samples) ...         " % (epochs, world.nSamples, self.val_world.nSamples), end='')
+        print("\rDeep Hedging Engine: warming up for %ld epochs and %ld samples (%ld validation samples) ...         " % (epochs, world.nSamples, self.val_world.nSamples), end='')
 
     def on_epoch_begin( self, epoch, logs = None ):# NOQA
         if self.epoch == -1:
@@ -532,7 +532,7 @@ class NotebookMonitor(tf.keras.callbacks.Callback):
         time_left         = total_time_passed / float(self.epoch+1) * float(self.epochs-self.epoch)
         
         str_intro = "Training %ld/%ld epochs; %ld samples; %ld validation samples batch size %ld" % ( self.epoch+1, self.epochs, self.world.nSamples, self.val_world.nSamples, self.batch_size)
-        str_perf  = "initial loss %g (%g), full %g (%g), best %g (%g), batch %g, val %g (%g). Best batch %ld" % ( \
+        str_perf  = "initial loss %g (%g), full %g (%g), best %g (%g), batch %g, val %g (%g). Best epoch %ld" % ( \
                                         self.init_loss, self.init_loss_err, \
                                         full_loss_mean, full_loss_err, \
                                         self.best_loss, self.best_loss_err, \
