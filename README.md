@@ -1,6 +1,6 @@
 # Deep Hedging
 ## Reinforcement Learning for Hedging Derviatives under Market Frictions
-### Beta version. Please report any issues.
+### Beta version. Please report any issues. Please see installation support below.
 
 This archive contains a sample implementation of of the Deep Hedging (http://deep-hedging.com) framework.
 The notebook directory has a number of examples on how to use it. The framework relies on the pip package cdxbasics.
@@ -74,12 +74,14 @@ on fully machine learned market simulators such as https://arxiv.org/abs/2112.06
 ## Installation
 
 <ul>
-    <li>Pip install <tt>cdxbasics</tt> version 0.1.42 or higher
+    <li>Use Python 3.7
+    <li>Pip (or conda) install <tt>cdxbasics</tt> version 0.1.42 or higher
     <li>Install TensorFlow 2.7 or higher
     <li>Install tensorflow_probability 0.15 or higher
     <li>Download this git directory in your Python path such that <tt>import deephedging.world</tt> works.
     <li>Open notebooks/trainer.ipynb</tt> and run it. If it 
 </ul>
+See below for more comments on different Python versions, installation, on using AWS and GPUs.
 
 ## Industrial Machine Learning Code Philosophy
 
@@ -363,6 +365,49 @@ only makes sense if the instrument is actually the same per time step, e.g. spot
     reads it.
     </li>
 </ul>
+
+# Installation Support
+
+### TensorFlow and Python
+
+Deep Hedging was developed using Tensorflow 2.7 on Python 37. The latest version seems to run with TF 2.6 on Python 3.6 as well. Check version compatibility between TensorFlow and Python [here](https://www.tensorflow.org/install/source#cpu).
+
+Deep Hedging uses tensorflow-probability which does <i>not</i> provide a robust dependency to the installed tensorflow version. If you receive an error you will need to make sure manually that it matches to your tensorflow version [here](https://github.com/tensorflow/probability/releases).
+
+Example with GPU, see also below:
+
+        pip install tensorflow==2.6 tensorflow-gpu==2.6 tensorflow_probability==0.14
+        
+(*) here is a stub which you may want to put ahead of any notebook you use:
+                
+        import tensorflow as tf
+        import tensorflow_probability as tfp # ensure this does not fail
+        print("TF version %s. Num GPUs Available: %ld" % (tf.__version__, len(tf.config.list_physical_devices('GPU')) ))
+
+### AWS SageMaker
+
+For using AWS SageMaker, create a new instance and select the <tt>conda_tensorflow2_p36</tt> enviroment and follow above.
+If you have cloned the [Deep Hedging git directory](https://github.com/hansbuehler/deephedging) via SageMaker, then the <tt>deephedging</tt> directory is <i>not</i> in your include path, even if the directory shows up in your jupyter hub file list. 
+
+You will need to add the path of your cloned git directory to python import. A simple method is to add the following in a cell ahead of the remaining code, e.g. at the beginning of <tt>notebooks/trainer.ipynb</tt>
+
+        import os
+        p = os.getcwd()
+        end = "/deephedging/notebooks"
+        assert p[-len(end):] == end, "*** Error: expected current working directory to end with %s but it is %s" % (end,p)
+        p = p[:-len(end)]
+        import sys
+        sys.path.append(p)
+        print("Added python path %s" % p)
+
+### GPU
+
+In order to run on GPU you must have installed the correct CUDA and cuDNN drivers, see [here](https://www.tensorflow.org/install/source#gpu).
+Once you have identified the correct drivers, use
+
+        conda install cudatoolkit=11.2 cudnn=8.1
+        
+Run the code above (*) to check whether it picked up your GPU. Make sure you have one on the instance you are working on.
 
 
 
