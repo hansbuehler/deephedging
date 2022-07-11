@@ -83,7 +83,7 @@ on fully machine learned market simulators such as https://arxiv.org/abs/2112.06
     <li>Install TensorFlow 2.7 or higher
     <li>Install tensorflow_probability 0.15 or higher
     <li>Download this git directory in your Python path such that <tt>import deephedging.world</tt> works.
-    <li>Open notebooks/trainer.ipynb</tt> and run it. If it 
+    <li>Open <tt>notebooks/trainer.ipynb</tt> and run it. 
 </ul>
 See below for more comments on different Python versions, installation, on using AWS and GPUs.
 
