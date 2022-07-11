@@ -3,16 +3,21 @@
 ### Beta version. Please report any issues. Please see installation support below.
 
 This archive contains a sample implementation of of the Deep Hedging (http://deep-hedging.com) framework.
-The notebook directory has a number of examples on how to use it. The framework relies on the pip package cdxbasics.
+The notebook directory has a number of examples on how to use it. The framework relies on the pip package [cdxbasics](https://github.com/hansbuehler/cdxbasics).
 
-The Deep Hedging problem for a horizon $T$ is given as
+The Deep Hedging problem for a horizon $T$ hedged over $M$ time steps with $N$ hedging instruments is given as
 <P>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$ \max_{a}: U[ \
         Z_T + \sum_{t=0}^{T-1} a(f_t) \cdot DH_t - | a(f_t)\gamma_t|
      \ \right]  $
 <p>
-where  $DH_t:=H_T - H_t$ denotes the vector of returns of the hedging instruments to $T$. Cost are proportional.
+where  $DH_t:=H_T - H_t$ denotes the vector of returns of the hedging instruments to $T$. In pur code base cost are proportional.
 The policy $a$ is a neural network which is fed both pre-computed and live features $f_t$ at each time step.
+
+<p>
+To test the code run <tt>notebooks/trainer.ipynb</tt>.
+
+
 <p>
 In order to run the Deep Hedging, we require:
 <ol>
@@ -21,25 +26,24 @@ In order to run the Deep Hedging, we require:
         across samples. The code provides a simplistic default implementation, but for any real application it is recommend to rely
         on fully machine learned market simulators such as https://arxiv.org/abs/2112.06823.
     </li>
-    <li><b>Gym</b>: essentially the <i>model</i>. This is more complex here than in standard ML, as we will construct our
-        own Monte Carlo loop arund the actual, underlying networks.<br>
+    <li><b>Gym</b>: the main Keras custom model. It is a Monte Carlo loop arund the actual underlying <tt>agent.py</tt> networks.<br>
         Given a <tt>world</tt> we can compute the loss given the prevailing action network as <tt>gym(world.tf_data)</tt>.
     </li>
     <li><b>Train</b>: some cosmetics around <tt>keras.fit()</tt> with some nice live visualization using matplotlib if you 
-        are in jupyter.
+        are in jupyter. See animation below.
     </li>
 </ol>
 
 To provide your own world with real or simulator data, see <tt>world.py</tt>.
-To give an indication of what is required, here are <tt>world.tf_data</tt> entries which are used by the <tt>gym</tt>:
+Here are <tt>world.tf_data</tt> entries used by <tt>gym.call()</tt>:
 <ul>
 <li>
-<tt>data['martket']['payoff']</tt> (:,M)<br> 
+<tt>data['market']['payoff']</tt> (:,)<br> 
 The payoff $Z_T$ at maturity. Since this is at or part the expiry of the product, this can be computed off the path until $T$.
 <br>&nbsp;
 </li>
 <li>
-<tt>data['martket']['payoff']</tt> (:,M,N)<br>
+<tt>data['martket']['hedges']</tt> (:,M,N)<br>
 Returns of the hedges, i.e. the vector $DH_t:=H_T - H_t$. That means $H_t$ is the model price at time $t$, and $H_T$ is the price at time $T$. 
 In most applications $T$ is chosen such that $H_T$
 is the actual payoff.<br>
@@ -48,7 +52,7 @@ is the actual payoff.<br>
 <br>&nbsp;
 </li>
 <li>
-<tt>data['martket']['payoff']</tt> (:,M,N)<br>
+<tt>data['martket']['cost']</tt> (:,M,N)<br>
 Cost $\gamma_t$ of trading the hedges in $t$ for proportional cost $c_t(a) = \gamma_t\cdot |a|$. 
 More advanced implementations allow to pass the cost function itself as a tensorflow model.<br>
     In the simple setting an example for the cost of trading a vanilla call could be $\gamma_t = \gamma^D\, BSDelta(t,\cdots)+ \gamma^V\,BSVega(t,\cdots)$.
