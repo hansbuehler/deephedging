@@ -114,7 +114,7 @@ We attempted to provide a base for industrial code development.
         <li><b>Self-documentation</b>: once parsed by receving code, the config is self-documenting and is able
             to print out any values used, including those which were not set by the users when calling the receiving code.
             </li>
-        <li><b>Object notation</b>: it is a matter of tastes, but we prefer using <tt>config.nSamples = 2</tt> instead
+        <li><b>Object notation</b>: we prefer using <tt>config.nSamples = 2</tt> instead
             of the standard dictionary notation.
         </li>
         &nbsp;
@@ -122,8 +122,8 @@ We attempted to provide a base for industrial code development.
     </li>
     <li>
         <b>Config-driven built</b>: 
-        this avoids difference between training and inference code. In both cases, the respective model hierarchy is built
-        from the configs up. No need to know in advance which sub-models where used within the overall model hierarchy.          
+        avoids differences between training and inference code. In both cases, the respective model hierarchy is built
+        driven by the structure of the config file. There is no need to know for inference which sub-models where used during training within the overall model hierarchy.          
         <br>&nbsp;
     </li>
 </ul>
@@ -149,15 +149,15 @@ We attempted to provide a base for industrial code development.
         To run the models for all samples of a given <tt>world</tt> use <tt>r = gym(world.tf_data)</tt>.<br>
         The returned dictionary contains the following members
         <ol>
-                 <li><tt>utiliy:  </tt> (,) primary objective to maximize
-            </li><li><tt>utiliy0: </tt> (,) objective without hedging
-            </li><li><tt>loss:    </tt> (,) -utility-utility0
-            </li><li><tt>payoff:  </tt> (,) terminal payoff 
-            </li><li><tt>pnl:     </tt> (,) mid-price pnl of trading (e.g. ex cost)
-            </li><li><tt>cost:    </tt> (,) cost of trading
-            </li><li><tt>gains:   </tt> (,) total gains: payoff + pnl - cost 
-            </li><li><tt>actions: </tt> (,M,N) actions, per step, per path
-            </li><li><tt>deltas:  </tt> (,M,N) deltas, per step, per path
+                 <li><tt>utiliy:  </tt> (:,) primary objective to maximize
+            </li><li><tt>utiliy0: </tt> (:,) objective without hedging
+            </li><li><tt>loss:    </tt> (:,) -utility-utility0
+            </li><li><tt>payoff:  </tt> (:,) terminal payoff 
+            </li><li><tt>pnl:     </tt> (:,) mid-price pnl of trading (e.g. ex cost)
+            </li><li><tt>cost:    </tt> (:,) cost of trading
+            </li><li><tt>gains:   </tt> (:,) total gains: payoff + pnl - cost 
+            </li><li><tt>actions: </tt> (:,M,N) actions, per step, per path
+            </li><li><tt>deltas:  </tt> (:,M,N) deltas, per step, per path
             </li>
         </ol>
         See <tt>notebooks/trainer.ipynb</tt>.
@@ -168,8 +168,8 @@ We attempted to provide a base for industrial code development.
     </li>
     <li><b>trainer.train</b> function<br>
         Main Deep Hedging training engine (stochastic gradient descent). <br>
-        Trains the model using keras. Any optimizer supported by Keras might be used. When run in a Jupyer notebook the model will 
-        dynamically plot progress in a number if graphs which will aid understanding on how training is progressing.<br>
+        Trains the model using Keras. Any optimizer supported by Keras might be used. When run in a Jupyer notebook the model will 
+        dynamically plot progress in a number of live updating graphs.
     When training outside jupyer, set <tt>config.visual.monitor_type = "none"</tt> (or write your own).
     <br>
         See <tt>notebooks/trainer.ipynb</tt>.
@@ -181,6 +181,47 @@ We attempted to provide a base for industrial code development.
     
 </ul>
 
+## Interpreting Progress Graphs
+
+Here is an example of progress information printed by  <tt>NotebookMonitor</tt>:
+
+<img src=pictures/progress.png />
+
+The graphs show:
+<ul>
+<li>(1): visualizing convergence
+    <ul>
+        <li>(1a): last 100 epochs loss view on convergence: initial loss, full training set loss with std error, batch loss, validation loss, and the running best fit.
+        </li>
+        <li>(1b): loss across all epochs, same metrics as above.
+        </li>
+        <li>(2c): last 100 epochs Monetary utility (value) of the payoff alone, and of the hedged gains (on full training set and on validation set).
+        </li>
+    </ul>
+<li>(2) visualizing the result on the training set:
+    <ul>
+    <li>(2a) shows the payoff as function of terminal spot. That graph makes sense for terminal payoffs, but less so for full path dependent structures.
+            Blue is the hedged position, orange the orignal position, and green the hedge.
+    </li>
+    <li>(2b) shows the cash (gains) by percentile. In the example we see that the original payoff has a better payoff profile for much of the x-axis, but a sharply larger loss otherwise.
+    </li>
+    <li>(2c) shows the utility by percentile. The farthest right is what is optimized for.
+    </li>
+    </ul>
+</li>
+<li>(3) same as (2), but for the validation set.
+</li>
+<li>(4) visualizes actions:
+    <ul>
+        <li>(4a) shows  actions per time step
+        </li><li>
+        (4b) shows the aggregated action as deltas accross time steps. Note that the concept of "delta"
+only makes sense if the instrument is actually the same per time step, e.g. spot of an stock price. For floating options this is not a particularly 
+            meaningful concept.
+        </li>
+    </ul>
+</li>
+    
 
 ## Running Deep Hedging
 
@@ -295,45 +336,6 @@ config.gym.agent.network['activation'] = softplus # Network activation function;
 </tt>
 
 
-## Interpreting Progress Output
-
-Here is an example of progress information printed by the <tt>NotebookMonitor</tt>:
-
-<img src=pictures/progress.png />
-
-The graphs show:
-<ul>
-<li>(1): visualizing convergence
-    <ul>
-        <li>(1a): last 100 epochs loss view on convergence: initial loss, full training set loss with std error, batch loss, validation loss, and the running best fit.
-        </li>
-        <li>(1b): loss across all epochs, same metrics as above.
-        </li>
-        <li>(2c): last 100 epochs Monetary utility (value) of the payoff alone, and of the hedged gains (on full training set and on validation set). Best.
-        </li>
-    </ul>
-<li>(2) visualizing the result on the training set:
-    <ul>
-    <li>(2a) shows the payoff as function of terminal spot. That graph makes sense for terminal payoffs, but less so for full path dependent structures.
-    </li>
-    <li>(2b) shows the cash (gains) by percentile. In the example we see that the original payoff has a better payoff profile for much of the x-axis, but a sharply larger loss otherwise.
-    </li>
-    <li>(2c) shows the utility by percentile. This is what is optimized for.
-    </li>
-    </ul>
-</li>
-<li>(3) same as (2), but for the validation set.
-</li>
-<li>(4) visualizes actions:
-    <ul>
-        <li>(4a) shows the action per time step
-        </li><li>
-        (4b) shows the aggregated action as deltas accross time steps. Note that the concept of "delta"
-only makes sense if the instrument is actually the same per time step, e.g. spot of an stock price. For floating options this is not a meaningful concept.
-        </li>
-    </ul>
-</li>
-    
 ## Misc Code Overview
     
 
@@ -363,7 +365,7 @@ only makes sense if the instrument is actually the same per time step, e.g. spot
     </li><li>
     <tt>plot_training.py</tt> contains code to provide live plots during training when running in a notebook.
     </li><li>
-    <tt>afents.py</tt> contains code to provide live plots during training when running in a notebook.
+    <tt>agents.py</tt> contains code to provide live plots during training when running in a notebook.
     </li><li>
     <tt>gym.py</tt> contains the gym for Deep Hedging, <tt>VanillaDeepHedgingGym</tt>. It is a small script and it is recommended that every user
     reads it.
@@ -374,7 +376,8 @@ only makes sense if the instrument is actually the same per time step, e.g. spot
 
 ### TensorFlow and Python
 
-Deep Hedging was developed using Tensorflow 2.7 on Python 37. The latest version seems to run with TF 2.6 on Python 3.6 as well. Check version compatibility between TensorFlow and Python [here](https://www.tensorflow.org/install/source#cpu).
+Deep Hedging was developed using Tensorflow 2.7 on Python 37. The latest version seems to run with TF 2.6 on Python 3.6 as well. Check version compatibility between TensorFlow and Python [here](https://www.tensorflow.org/install/source#cpu). The main difference is that TF before 2.7 expects tensors of dimension (nBatch)
+to be passed as (nBatch,1) which is
 
 Deep Hedging uses tensorflow-probability which does <i>not</i> provide a robust dependency to the installed tensorflow version. If you receive an error you will need to make sure manually that it matches to your tensorflow version [here](https://github.com/tensorflow/probability/releases).
 
