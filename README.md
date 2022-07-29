@@ -227,113 +227,111 @@ only makes sense if the instrument is actually the same per time step, e.g. spot
 
 Copied from <tt>notebooks/trainer.ipynb</tt>:
 
-<tt>
-from cdxbasics.config import Config<br>
-from deephedging.trainer import train<br>
-from deephedging.gym import VanillaDeepHedgingGym<br>
-from deephedging.world import SimpleWorld_Spot_ATM<br>
-<br>
-# see print of the config below for numerous options<br>
-config = Config()<br>
-# world<br>
-config.world.samples = 10000<br>
-config.world.steps = 20<br>
-config.world.black_scholes = True<br>
-# gym<br>
-config.gym.objective.utility = "exp2"<br>
-config.gym.objective.lmbda = 10.<br>
-config.gym.agent.network.depth = 3<br>
-config.gym.agent.network.activation = "softplus"<br>
-# trainer<br>
-config.trainer.train.batch_size = None<br>
-config.trainer.train.epochs = 400<br>
-config.trainer.train.run_eagerly = False<br>
-config.trainer.visual.epoch_refresh = 1<br>
-config.trainer.visual.time_refresh = 10<br>
-config.trainer.visual.pcnt_lo = 0.25<br>
-config.trainer.visual.pcnt_hi = 0.75<br>
-<br>
-# create world<br>
-world  = SimpleWorld_Spot_ATM( config.world )<br>
-val_world  = world.clone(samples=1000)<br>
-<br>
-# create training environment<br>
-gym = VanillaDeepHedgingGym( config.gym )<br>
-<br>
-# create training environment<br>
-train( gym=gym, world=world, val_world=val_world, config=config.trainer )<br>
-<br>
-# print information on all available parameters and their usage<br>
-print("=========================================")<br>
-print("Config usage report")<br>
-print("=========================================")<br>
-print( config.usage_report() )<br>
-config.done()<br>
-</tt>
+        from cdxbasics.config import Config
+        from deephedging.trainer import train
+        from deephedging.gym import VanillaDeepHedgingGym
+        from deephedging.world import SimpleWorld_Spot_ATM
+
+        # see print of the config below for numerous options
+        config = Config()
+        # world
+        config.world.samples = 10000
+        config.world.steps = 20
+        config.world.black_scholes = True
+        # gym
+        config.gym.objective.utility = "exp2"
+        config.gym.objective.lmbda = 10.
+        config.gym.agent.network.depth = 3
+        config.gym.agent.network.activation = "softplus"
+        # trainer
+        config.trainer.train.batch_size = None
+        config.trainer.train.epochs = 400
+        config.trainer.train.run_eagerly = False
+        config.trainer.visual.epoch_refresh = 1
+        config.trainer.visual.time_refresh = 10
+        config.trainer.visual.pcnt_lo = 0.25
+        config.trainer.visual.pcnt_hi = 0.75
+
+        # create world
+        world  = SimpleWorld_Spot_ATM( config.world )
+        val_world  = world.clone(samples=1000)
+
+        # create training environment
+        gym = VanillaDeepHedgingGym( config.gym )
+
+        # create training environment
+        train( gym=gym, world=world, val_world=val_world, config=config.trainer )
+
+        # print information on all available parameters and their usage
+        print("=========================================")
+        print("Config usage report")
+        print("=========================================")
+        print( config.usage_report() )
+        config.done()
 
 ## Config Parameters
 
 This is the output of the <tt>print( config.usage_report() )</tt> call above. It provides a summary of all config values available, their defaults, and what values where used.
 
-<tt>
-config.gym.agent.network['activation'] = softplus # Network activation function; default: relu
-<br>config.gym.agent.network['depth'] = 3 # Network depth; default: 3
-<br>config.gym.agent.network['width'] = 20 # Network width; default: 20
-<br>config.gym.agent['agent_type'] = feed_forward #  Default: feed_forward
-<br>config.gym.agent['features'] = ['price', 'delta', 'time_left'] # Named features the agent uses from the environment; default: ['price', 'delta', 'time_left']
-<br>    
-<br>config.gym.environment['softclip_hinge_softness'] = 1.0 # Specifies softness of bounding actions between lbnd_a and ubnd_a; default: 1.0
-<br>    
-<br>config.gym.objective['lmbda'] = 10.0 # Risk aversion; default: 1.0
-<br>config.gym.objective['utility'] = exp2 # Type of monetary utility: mean, exp, exp2, vicky, cvar, quad; default: entropy
-<br>    
-<br>config.trainer.train['batch_size'] = None # Batch size; default: None
-<br>config.trainer.train['epochs'] = 10 # Epochs; default: 100
-<br>config.trainer.train['optimizer'] = adam # Optimizer; default: adam
-<br>config.trainer.train['run_eagerly'] = False # Keras model run_eagerly; default: False
-<br>config.trainer.train['time_out'] = None # Timeout in seconds. None for no timeout; default: None
-<br>config.trainer.visual.fig['col_nums'] = 6 # Number of columbs; default: 6
-<br>config.trainer.visual.fig['col_size'] = 5 # Plot size of a column; default: 5
-<br>config.trainer.visual.fig['row_size'] = 5 # Plot size of a row; default: 5
-<br>config.trainer.visual['bins'] = 200 # How many x to plot; default: 200
-<br>config.trainer.visual['epoch_refresh'] = 1 # Epoch fefresh frequency for visualizations; default: 10
-<br>config.trainer.visual['err_dev'] = 1.0 # How many standard errors to add to loss to assess best performance; default: 1.0
-<br>config.trainer.visual['lookback_window'] = 30 # Lookback window for determining y min/max; default: 30
-<br>config.trainer.visual['confidence_pcnt_hi'] = 0.75 # Upper percentile for confidence intervals; default: 0.5
-<br>config.trainer.visual['confidence_pcnt_lo'] = 0.25 # Lower percentile for confidence intervals; default: 0.5
-<br>config.trainer.visual['show_epochs'] = 100 # Maximum epochs displayed; default: 100
-<br>config.trainer.visual['time_refresh'] = 10 # Time refresh interval for visualizations; default: 20
-<br>
-<br>config.world['black_scholes'] = True # Hard overwrite to use a black & scholes model with vol 'rvol' and drift 'drift; default: False
-<br>config.world['corr_ms'] = 0.5 # Correlation between the asset and its mean; default: 0.5
-<br>config.world['corr_vi'] = 0.8 # Correlation between the implied vol and the asset volatility; default: 0.8
-<br>config.world['corr_vs'] = -0.7 # Correlation between the asset and its volatility; default: -0.7
-<br>config.world['cost_p'] = 0.0005 # Trading cost for the option on top of delta and vega cost; default: 0.0005
-<br>config.world['cost_s'] = 0.0002 # Trading cost spot; default: 0.0002
-<br>config.world['cost_v'] = 0.02 # Trading cost vega; default: 0.02
-<br>config.world['drift'] = 0.1 # Mean drift of the asset; default: 0.1
-<br>config.world['drift_vol'] = 0.1 # Vol of the drift; default: 0.1
-<br>config.world['dt'] = 0.02 # Time per timestep; default: One week (1/50)
-<br>config.world['invar_steps'] = 5 # Number of steps ahead to sample from invariant distribution; default: 5
-<br>config.world['ivol'] = 0.2 # Initial implied volatility; default: Same as realized vol
-<br>config.world['lbnd_as'] = -5.0 # Lower bound for the number of shares traded at each time step; default: -5.0
-<br>config.world['lbnd_av'] = -5.0 # Lower bound for the number of options traded at each time step; default: -5.0
-<br>config.world['meanrev_drift'] = 1.0 # Mean reversion of the drift of the asset; default: 1.0
-<br>config.world['meanrev_ivol'] = 0.1 # Mean reversion for implied vol vol vs initial level; default: 0.1
-<br>config.world['meanrev_rvol'] = 2.0 # Mean reversion for realized vol vs implied vol; default: 2.0
-<br>config.world['payoff'] = \<function SimpleWorld_Spot_ATM.__init__.\<locals\>.\<lambda\> at 0x0000022125590708\> # Payoff function. Parameters is spots[samples,steps+1]; default: Short ATM call function
-<br>config.world['rcorr_vs'] = -0.5 # Residual correlation between the asset and its implied volatility; default: -0.5
-<br>config.world['rvol'] = 0.2 # Initial realized volatility; default: 0.2
-<br>config.world['samples'] = 10000 # Number of samples; default: 1000
-<br>config.world['seed'] = 2312414312 # Random seed; default: 2312414312
-<br>config.world['steps'] = 20 # Number of time steps; default: 10
-<br>config.world['strike'] = 1.0 # Relative strike. Set to zero to turn off option; default: 1.0
-<br>config.world['ttm_steps'] = 4 # Time to maturity of the option; in steps; default: 4
-<br>config.world['ubnd_as'] = 5.0 # Upper bound for the number of shares traded at each time step; default: 5.0
-<br>config.world['ubnd_av'] = 5.0 # Upper bound for the number of options traded at each time step; default: 5.0
-<br>config.world['volvol_ivol'] = 0.5 # Vol of Vol for implied vol; default: 0.5
-<br>config.world['volvol_rvol'] = 0.5 # Vol of Vol for realized vol; default: 0.5
-</tt>
+Here is an example. Please run the actual code for updated parameter descriptions
+
+        config.gym.agent.network['activation'] = softplus # Network activation function; default: relu
+        config.gym.agent.network['depth'] = 3 # Network depth; default: 3
+        config.gym.agent.network['width'] = 20 # Network width; default: 20
+        config.gym.agent['agent_type'] = feed_forward #  Default: feed_forward
+        config.gym.agent['features'] = ['price', 'delta', 'time_left'] # Named features the agent uses from the environment; default: ['price', 'delta', 'time_left']
+
+        config.gym.environment['softclip_hinge_softness'] = 1.0 # Specifies softness of bounding actions between lbnd_a and ubnd_a; default: 1.0
+
+        config.gym.objective['lmbda'] = 10.0 # Risk aversion; default: 1.0
+        config.gym.objective['utility'] = exp2 # Type of monetary utility: mean, exp, exp2, vicky, cvar, quad; default: entropy
+
+        config.trainer.train['batch_size'] = None # Batch size; default: None
+        config.trainer.train['epochs'] = 10 # Epochs; default: 100
+        config.trainer.train['optimizer'] = adam # Optimizer; default: adam
+        config.trainer.train['run_eagerly'] = False # Keras model run_eagerly; default: False
+        config.trainer.train['time_out'] = None # Timeout in seconds. None for no timeout; default: None
+        config.trainer.visual.fig['col_nums'] = 6 # Number of columbs; default: 6
+        config.trainer.visual.fig['col_size'] = 5 # Plot size of a column; default: 5
+        config.trainer.visual.fig['row_size'] = 5 # Plot size of a row; default: 5
+        config.trainer.visual['bins'] = 200 # How many x to plot; default: 200
+        config.trainer.visual['epoch_refresh'] = 1 # Epoch fefresh frequency for visualizations; default: 10
+        config.trainer.visual['err_dev'] = 1.0 # How many standard errors to add to loss to assess best performance; default: 1.0
+        config.trainer.visual['lookback_window'] = 30 # Lookback window for determining y min/max; default: 30
+        config.trainer.visual['confidence_pcnt_hi'] = 0.75 # Upper percentile for confidence intervals; default: 0.5
+        config.trainer.visual['confidence_pcnt_lo'] = 0.25 # Lower percentile for confidence intervals; default: 0.5
+        config.trainer.visual['show_epochs'] = 100 # Maximum epochs displayed; default: 100
+        config.trainer.visual['time_refresh'] = 10 # Time refresh interval for visualizations; default: 20
+
+        config.world['black_scholes'] = True # Hard overwrite to use a black & scholes model with vol 'rvol' and drift 'drift; default: False
+        config.world['corr_ms'] = 0.5 # Correlation between the asset and its mean; default: 0.5
+        config.world['corr_vi'] = 0.8 # Correlation between the implied vol and the asset volatility; default: 0.8
+        config.world['corr_vs'] = -0.7 # Correlation between the asset and its volatility; default: -0.7
+        config.world['cost_p'] = 0.0005 # Trading cost for the option on top of delta and vega cost; default: 0.0005
+        config.world['cost_s'] = 0.0002 # Trading cost spot; default: 0.0002
+        config.world['cost_v'] = 0.02 # Trading cost vega; default: 0.02
+        config.world['drift'] = 0.1 # Mean drift of the asset; default: 0.1
+        config.world['drift_vol'] = 0.1 # Vol of the drift; default: 0.1
+        config.world['dt'] = 0.02 # Time per timestep; default: One week (1/50)
+        config.world['invar_steps'] = 5 # Number of steps ahead to sample from invariant distribution; default: 5
+        config.world['ivol'] = 0.2 # Initial implied volatility; default: Same as realized vol
+        config.world['lbnd_as'] = -5.0 # Lower bound for the number of shares traded at each time step; default: -5.0
+        config.world['lbnd_av'] = -5.0 # Lower bound for the number of options traded at each time step; default: -5.0
+        config.world['meanrev_drift'] = 1.0 # Mean reversion of the drift of the asset; default: 1.0
+        config.world['meanrev_ivol'] = 0.1 # Mean reversion for implied vol vol vs initial level; default: 0.1
+        config.world['meanrev_rvol'] = 2.0 # Mean reversion for realized vol vs implied vol; default: 2.0
+        config.world['payoff'] = \<function SimpleWorld_Spot_ATM.__init__.\<locals\>.\<lambda\> at 0x0000022125590708\> # Payoff function. Parameters is spots[samples,steps+1]; default: Short ATM call function
+        config.world['rcorr_vs'] = -0.5 # Residual correlation between the asset and its implied volatility; default: -0.5
+        config.world['rvol'] = 0.2 # Initial realized volatility; default: 0.2
+        config.world['samples'] = 10000 # Number of samples; default: 1000
+        config.world['seed'] = 2312414312 # Random seed; default: 2312414312
+        config.world['steps'] = 20 # Number of time steps; default: 10
+        config.world['strike'] = 1.0 # Relative strike. Set to zero to turn off option; default: 1.0
+        config.world['ttm_steps'] = 4 # Time to maturity of the option; in steps; default: 4
+        config.world['ubnd_as'] = 5.0 # Upper bound for the number of shares traded at each time step; default: 5.0
+        config.world['ubnd_av'] = 5.0 # Upper bound for the number of options traded at each time step; default: 5.0
+        config.world['volvol_ivol'] = 0.5 # Vol of Vol for implied vol; default: 0.5
+        config.world['volvol_rvol'] = 0.5 # Vol of Vol for realized vol; default: 0.5
 
 
 ## Misc Code Overview
@@ -377,7 +375,7 @@ config.gym.agent.network['activation'] = softplus # Network activation function;
 ### TensorFlow and Python
 
 Deep Hedging was developed using Tensorflow 2.7 on Python 37. The latest version seems to run with TF 2.6 on Python 3.6 as well. Check version compatibility between TensorFlow and Python [here](https://www.tensorflow.org/install/source#cpu). The main difference is that TF before 2.7 expects tensors of dimension (nBatch)
-to be passed as (nBatch,1) which is
+to be passed as (nBatch,1).
 
 Deep Hedging uses tensorflow-probability which does <i>not</i> provide a robust dependency to the installed tensorflow version. If you receive an error you will need to make sure manually that it matches to your tensorflow version [here](https://github.com/tensorflow/probability/releases).
 
