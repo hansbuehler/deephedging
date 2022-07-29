@@ -338,7 +338,13 @@ Here is an example. Please run the actual code for updated parameter description
     
 
 <ul>
-    <li>
+        <li>
+    <tt>gym.py</tt> contains the gym for Deep Hedging, <tt>VanillaDeepHedgingGym</tt>. It is a small script and it is recommended that every user
+    reads it.
+    </li><li>    
+    <tt>train.py</tt> simplistic wrapper around keras <tt>fit()</tt> to train the <tt>gym</tt>. It is a small script and it is recommended that every user
+    reads it.
+    </li><li>
         <tt>base.py</tt> contains a number of useful tensorflow utilities such as
         <ul>
                  <li><tt>tfCast, npCast</tt>: casting from and to tensorflow
@@ -362,11 +368,6 @@ Here is an example. Please run the actual code for updated parameter description
     Typically driven by top level <tt>config.gym.objective</tt>.
     </li><li>
     <tt>plot_training.py</tt> contains code to provide live plots during training when running in a notebook.
-    </li><li>
-    <tt>agents.py</tt> contains code to provide live plots during training when running in a notebook.
-    </li><li>
-    <tt>gym.py</tt> contains the gym for Deep Hedging, <tt>VanillaDeepHedgingGym</tt>. It is a small script and it is recommended that every user
-    reads it.
     </li>
 </ul>
 
