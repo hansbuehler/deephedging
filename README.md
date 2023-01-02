@@ -149,8 +149,8 @@ We attempted to provide a base for industrial code development.
         To run the models for all samples of a given <tt>world</tt> use <tt>r = gym(world.tf_data)</tt>.<br>
         The returned dictionary contains the following members
         <ol>
-                 <li><tt>utiliy:  </tt> (:,) primary objective to maximize
-            </li><li><tt>utiliy0: </tt> (:,) objective without hedging
+                 <li><tt>utility: </tt> (:,) primary objective to maximize
+            </li><li><tt>utility0:</tt> (:,) objective without hedging
             </li><li><tt>loss:    </tt> (:,) -utility-utility0
             </li><li><tt>payoff:  </tt> (:,) terminal payoff 
             </li><li><tt>pnl:     </tt> (:,) mid-price pnl of trading (e.g. ex cost)
