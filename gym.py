@@ -43,6 +43,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         tf.keras.Model.__init__(self, dtype=dtype )
         self.config_action         = config.agent.detach()
         self.config_utility        = config.objective.detach()
+        self.hard_clip             = config.environment('hard_clip', False, bool, "Use min/max instread of soft clip for limiting actions by their bounds")
         hinge_softness             = config.environment('softclip_hinge_softness', 1., float, help="Specifies softness of bounding actions between lbnd_a and ubnd_a")
         self.softclip              = tfp.bijectors.SoftClip( low=0., high=1., hinge_softness=hinge_softness, name='soft_clip' )
         config.done()
@@ -56,7 +57,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         _log.verify( isinstance(shapes, Mapping), "'shapes' must be a dictionary type. Found type %s", type(shapes ))
 
         nInst         = int( shapes['market']['hedges'][2] )
-        self.agent    = AgentFactory( nInst, self.config_action, dtype=self.dtype ) 
+        self.agent    = AgentFactory( nInst, self.config_action, per_step=True, dtype=self.dtype ) 
         self.utility  = MonetaryUtility( self.config_utility, dtype=self.dtype ) 
         self.utility0 = MonetaryUtility( self.config_utility, dtype=self.dtype ) 
         
@@ -87,8 +88,8 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             dict:
             This function returns analaytics of the performance of the agent
             on the path as a dictionary. Each is returned per sample
-                utiliy:          (,) primary objective to maximize
-                utiliy0:         (,) objective without hedging
+                utility:         (,) primary objective to maximize
+                utility0:        (,) objective without hedging
                 loss:            (,) -utility-utility0
                 payoff:          (,) terminal payoff 
                 pnl:             (,) mid-price pnl of trading (e.g. ex cost)
@@ -197,6 +198,14 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         with tf.control_dependencies( [ tf.debugging.assert_greater_equal( ubnd_a, lbnd_a, message="Upper bound for actions must be bigger than lower bound" ),
                                         tf.debugging.assert_greater_equal( ubnd_a, 0., message="Upper bound for actions must not be negative" ),
                                         tf.debugging.assert_less_equal( lbnd_a, 0., message="Lower bound for actions must not be positive" ) ] ):
+            
+            if self.hard_clip:
+                # this is recommended for debugging only.
+                # soft clipping should lead to smoother gradients
+                actions = tf.minimum( actions, ubnd_a )
+                actions = tf.maximum( actions, lbnd_a )
+                return actions            
+            
             dbnd = ubnd_a - lbnd_a
             rel  = ( actions - lbnd_a ) / dbnd
             rel  = self.softclip( rel )

@@ -409,6 +409,9 @@ class NotebookMonitor(tf.keras.callbacks.Callback):
             
     def on_epoch_end( self, epoch, logs = None ):
         """ Called when an epoch ends """
+        if self.epoch == -1:
+            empty = " "*200
+            print("\r\33[2K "+empty+"\r", end='')                                            
         self.full_result = npCast( self.gym(self.world.tf_data) )
         self.val_result  = npCast( self.gym(self.val_world.tf_data) )
         self.epoch       = epoch

@@ -38,8 +38,7 @@ class SimpleWorld_Spot_ATM(object):
             Numpy data of the world
 
             market : dict
-                per_step : dict - Dictionary of market data with second dimension equal to step size (numpy)
-                per_path : dict - Dictionary of market data valid per path
+                Dictionary of market data with second dimension equal to step size (numpy)
 
             features : dict
                 per_step : dict - Dictionary of features with second dimension equal to step size (numpy)
@@ -117,10 +116,12 @@ class SimpleWorld_Spot_ATM(object):
 
         # payoff
         # must either be a function of spots[samples,steps+1], None, or a fixed umber
-        payoff_f  = config("payoff", lambda spots : - np.maximum( spots[:,-1] - 1., 0. ), help="Payoff function with parameter spots[samples,steps+1]. Must return a vector [samples]. You can also use None or a simple float.", help_default="Short ATM call function")
+        payoff_f  = config("payoff", lambda spots : - np.maximum( spots[:,-1] - 1, 0. ), help="Payoff function with parameter spots[samples,steps+1]. Must return a vector [samples]. The default is a short call with strike 1: '- np.maximum( spots[:,-1] - 1, 0. )'. A short forward starting ATM call is given as '- np.maximum( spots[:,-1] - spots[:,0], 0. )'. You can also use None for zero, or a simple float.", help_default="Short call with strike 1")
         if payoff_f is None:
+            # None means zero.
             payoff_f = lambda x : np.zeros( (x.shape[0], ) )
         elif isinstance(payoff_f, (int,float)):
+            # specify terminal payoff as a fixed number, e.g. 0
             payoff_f = lambda x : np.full( (x.shape[0],), float(payoff_f) )
 
         # option
@@ -338,13 +339,13 @@ class SimpleWorld_Spot_ATM(object):
                 # both spot and option, if present
                 cost   = cost,            # trading cost
                 price  = price,           # price 
-                ubnd_a = ubnd_a,          # bounds. Currently those are determinstic so don't use
+                ubnd_a = ubnd_a,          # bounds. Currently those are determinstic so don't use as features
                 lbnd_a = lbnd_a,
                                           # time
                 time_left      = np.full( (nSamples, nSteps), time_left[np.newaxis,:] ),
                 sqrt_time_left = np.full( (nSamples, nSteps), sqrt_time_left[np.newaxis,:] ),
-                # specific to spot
-                spot   = spot[:,:nSteps], # spot at beginning of each interval, and at the end
+                # specific to equity spot
+                spot   = spot[:,:nSteps], # spot level
                 ivol   = ivol,            # implied vol at beginning of each interval
                 ),
             per_path = pdct(),
@@ -499,6 +500,8 @@ class SimpleWorld_Spot_ATM(object):
 
 class SimpleWorld_Stock_Option(object):
     """
+    EXPERIMENTAL DO NOT USE YET
+    
     Simple World with one BS asset and one fixed option.
     The asset has drift and realized vol different from the option.
 
@@ -586,7 +589,7 @@ class SimpleWorld_Stock_Option(object):
         # payoff
         payoff_f  = config("payoff", lambda spots : - np.maximum( spots[:,-1] - 1., 0. ), help="Payoff function. Parameters is spots[samples,steps+1].", help_default="Short ATM call function")
 
-        # option
+        # hedging option
         # set strike == to turn off
         strike    = config("strike", 1.,     float, help="Realtive strike. Set to zero to turn off option")
         cost_v    = config("cost_v", 0.02, float, help="Trading cost vega")

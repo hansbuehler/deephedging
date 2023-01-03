@@ -56,7 +56,8 @@ class MonetaryUtility(tf.keras.layers.Layer):
                 dtype
         """
         tf.keras.layers.Layer.__init__(self, name=name, dtype=dtype )
-        self.utility    = config("utility","entropy", str, help="Type of monetary utility: mean, exp, exp2, vicky, cvar, quad")
+        self.utility    = config("utility","exp2", ['mean', 'exp', 'exp2', 'vicky', 'cvar', 'quad'],\
+                                 help="Type of monetary utility: mean, exp, exp2, vicky, cvar, quad")
         self.lmbda      = config("lmbda", 1., float, help="Risk aversion")
         _log.verify( self.lmbda > 0., "'lmnda' must be positive. Use utility 'mean' for zero lambda")
         
@@ -171,9 +172,11 @@ def utility( utility : str, lmbda : float, X : tf.Tensor, y : tf.Tensor = 0. ) -
         # 1+lambda = 1/(1-p) where p is the required percentile, e.g. 95%
         # For a given percentile
         #   lambda = p / (1-p)
-        # For a give lmbda
+        # In other words, for p=50% use 1. (as in https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3120710)
+        #                 for p=95% use 19. 
+        # For a given lmbda
         #   p = L / (1+L)
-        u = (1.+lmbda) * tf.math.minimum( gains ) - y
+        u = (1.+lmbda) * tf.math.minimum( 0., gains ) - y
         d = tf.where( gains < 0., -(1.+lmbda), 0. )
 
     elif utility == "quad":

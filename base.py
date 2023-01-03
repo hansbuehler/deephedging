@@ -2,15 +2,12 @@
 Deep Hedging Base.
 ------------------
 Import this file in all deep hedging files.
-
-from .base import Logger, Config, tf, tfp, dh_type
-
 June 30, 2022
 @author: hansbuehler
 """
 
 from cdxbasics.logger import Logger
-from cdxbasics.config import Config # NOQA
+from cdxbasics.config import Config, Int, Float # NOQA
 from cdxbasics.prettydict import PrettyOrderedDict as pdct # NOQA
 from cdxbasics.util import isAtomic
 import numpy as np
@@ -219,7 +216,9 @@ def err( P : np.ndarray, w : np.ndarray, axis : int = None ) -> np.ndarray:
 
 def mean_bins( x : np.ndarray, bins : int, weights = None ) -> np.ndarray:
     """
-    Return a vector of means of bin s of x
+    Return a vector of 'bins' means of x.
+    Bins the vector 'x' into 'bins' bins, then computes the mean of each bin, and returns the resulting vector of length 'bins'.
+    
     Typical use case is computing the mean over percentiles, e.g.
     
         x = np.sort(x)
@@ -232,8 +231,8 @@ def mean_bins( x : np.ndarray, bins : int, weights = None ) -> np.ndarray:
         x : vector
         bins : int
             Number of bins
-        axis : int
-            Along which axis
+        weights : vector
+            Sample weights or zero for unit weights
     Returns
     -------
         Numpy array of bins.
@@ -243,7 +242,7 @@ def mean_bins( x : np.ndarray, bins : int, weights = None ) -> np.ndarray:
 
     x    = np.asarray(x)
     l    = len(x)
-    assert len(x.shape) == 1, "Need to extend to more axes"
+    assert len(x.shape) == 1, "Only plaoin vectors are supported. Need to extend to more axes"
     if l <= bins:
         return x
     assert bins > 0, "'bins' must be positive"
@@ -256,15 +255,23 @@ def mean_bins( x : np.ndarray, bins : int, weights = None ) -> np.ndarray:
     
 def mean_cum_bins( x : np.ndarray, bins : int, weights = None ) -> np.ndarray:
     """
-    Return a vector of means of bins of x
+    Return a vector of 'bins' cummulative means of x.
+    Bins the vector 'x' into 'bins' bins, then iteratively computed the mean of the first j bins, and returns the result as a vector of length 'bins'.
     
+    Typical usecase is computing conditional means:
+    
+        x = np.sort(x)
+        b = mean_bins(x, 9)
+        
+    The resulting 'b' essentially represents E[X|X<ai+1] with ai = ith/10 percentile
+
     Parameters
     ----------
         x : vector
         bins : int
             Number of bins
-        axis : int
-                Along which axis
+        weights : vector
+            Sample weights or zero for unit weights
     Returns
     -------
         Nunpy array of bins.
@@ -274,7 +281,7 @@ def mean_cum_bins( x : np.ndarray, bins : int, weights = None ) -> np.ndarray:
 
     x    = np.asarray(x)
     l    = len(x)
-    assert len(x.shape) == 1, "Need to extend to more axes"
+    assert len(x.shape) == 1, "Only plaoin vectors are supported. Need to extend to more axes"
     if l <= bins:
         return x
     assert bins > 0, "'bins' must be positive"
@@ -287,10 +294,11 @@ def mean_cum_bins( x : np.ndarray, bins : int, weights = None ) -> np.ndarray:
 
 def perct_exp( x : np.ndarray, lo : float, hi : float, weights : np.ndarray = None ) -> np.ndarray:
     """
-    Compute the expectation over a percentile i.e. it will
-    sort x and then compute np.mean( x[:len*lo] ) and np.mean( x[hi*len:] ).
-    If a matrix instead of vector is given it will assume that
-    the first dim is the sample dimension
+    Compute the expectation over a percentile i.e. it will sort x and then compute np.mean( x[:len*lo] ) and np.mean( x[hi*len:] ).
+    If a matrix instead of vector is given it will assume that the first dim is the sample dimension.
+    
+    If x is a vector, the function returns a 2-dimensional vector.
+    If x is a matrix of second dimension n2, then the function returns a matrix of dimension [2,n2].
     """    
     lo   = float(lo)
     hi   = float(hi)
