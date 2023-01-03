@@ -9,6 +9,7 @@ June 30, 2022
 """
 
 from .base import Logger, Config, tf, dh_dtype, VariableModel
+import numpy as np
 from collections.abc import Mapping
 _log = Logger(__file__)
 
@@ -72,6 +73,7 @@ class FeedForwardAgent(tf.keras.layers.Layer):
         """
         _log.verify( isinstance(shapes, Mapping), "'shapes' must be a dictionary type. Found type %s", type(shapes ))
         assert self.nFeatures is None and self.model is None, ("build() call twice")
+        
         # collect features
         self.nFeatures = 0
         for feature in self.features:
@@ -79,14 +81,15 @@ class FeedForwardAgent(tf.keras.layers.Layer):
             fs = shapes[feature]
             assert len(fs) == 2, ("Internal error: all features should have been flattend. Found feature '%s' with shape %s" % (feature, fs))
             self.nFeatures += fs[1]
+    
         # build model
         # simple feedforward model as an example
         if self.nFeatures == 0:
             """ Create model without inputs, but which is trainable.
-                Same as creating a variable here, but allows us using
+                Same as creating a plain variable, but wrappong it allows us using
                 a single self.model
             """
-            self.model    = VariableModel( 0., dtype=self.dtype )
+            self.model    = VariableModel( np.zeros((self.nInst,)), dtype=self.dtype )
         else:
             """ Simple feed forward network with optional recurrent layer """
             inp = tf.keras.layers.Input( shape=(self.nFeatures,), dtype=self.dtype )
@@ -133,6 +136,10 @@ class FeedForwardAgent(tf.keras.layers.Layer):
             assert self.nFeatures == features.shape[1], ("Condig error: number of features should match up. Found %ld and %ld" % ( self.nFeatures, features.shape[1] ) )
         return self.model( features, training=training )
            
+
+class RecurrentAgent(tf.keras.layers.Layer):
+    pass
+
 # =========================================================================================
 # Factory
 # =========================================================================================
@@ -156,6 +163,8 @@ def AgentFactory( nInst : int, config : Config, name : str = None,  per_step : b
             Namer of the tf layer for the agent
         per_step : bool, optional
             Whether the agent is used per time step, or once per sample.
+            This allows the use of agents in other contexts, for example in the objective
+            definition for y in OCE monetary utilities. See objectives.py
         dtype : tf.DType
             dtype
 
@@ -163,10 +172,12 @@ def AgentFactory( nInst : int, config : Config, name : str = None,  per_step : b
     -------
         An agent model
     """    
-    agent_type  = config("agent_type", "feed_forward", str, "Which network agent type to use")
+    agent_type  = config("agent_type", "feed_forward", ['feed_forward', 'recursive'], "Which network agent type to use")
     agent       = None
     if agent_type == "feed_forward":
         agent = FeedForwardAgent( nInst, config, name=name, per_step=per_step, dtype=dtype )
+    elif agent_type == "recursive":
+        agent = RecursivedAgent( nInst, config, name=name, per_step=per_step, dtype=dtype )
     
     _log.verify( not agent is None, "Unknnown agent type '%s'", agent_type )
     return agent
