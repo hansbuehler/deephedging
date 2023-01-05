@@ -10,6 +10,7 @@ from cdxbasics.logger import Logger
 from cdxbasics.config import Config, Int, Float # NOQA
 from cdxbasics.prettydict import PrettyOrderedDict as pdct # NOQA
 from cdxbasics.util import isAtomic
+from collections.abc import Mapping
 import numpy as np
 import tensorflow as tf
 import math as math
@@ -116,6 +117,13 @@ def npCast( x, dtype=None ):
     
     return  np.asarray( x, dtype=dtype )
 
+def tf_glorot_value( shape ):
+    """ Return a tensor initialized with the glorotuniform initialize, the default for dense tensors in keras """
+    initializer = tf.keras.initializers.GlorotUniform()
+    x = initializer(shape=shape)
+    assert np.sum(np.isnan(x)) == 0, "Internal error: %g" % x
+    return x
+    
 # -------------------------------------------------
 # TF flattening
 # -------------------------------------------------
@@ -170,18 +178,6 @@ def tf_make_dim( tensor : tf.Tensor, dim : int ) -> tf.Tensor:
         tensor = tensor[...,tf.newaxis]
     return tensor
 
-class VariableModel(tf.keras.layers.Layer):
-    """ Simple keras model without input which wraps a trainable variable """
-    
-    def __init__(self, init = 0., name : str = None, dtype : tf.DType = dh_dtype ):
-        """ Initialize ModelVariable """
-        tf.keras.layers.Layer.__init__(self, name=name, dtype=dtype )
-        self.variable     = tf.Variable( init, trainable=True, name=name, dtype=self.dtype )
-        
-    def call( self, dummy_data : dict = None, training : bool = False ) -> tf.Tensor:
-        """ Return variable value """
-        return self.variable
-
 # -------------------------------------------------
 # Basic arithmetics
 # -------------------------------------------------
@@ -191,7 +187,7 @@ def mean( P : np.ndarray, w : np.ndarray, axis : int = None ) -> np.ndarray:
     assert P.shape == w.shape, "Bad shapes: %s != %s" % (P.shape, w.shape)
     P = np.asarray(P)
     m = np.sum( P * w, axis=axis )
-    assert not np.isnan(m), "Internal error: %g\n P = %s\n w = %s" % (m, P, w)
+    assert np.sum(np.isnan(m)) == 0, "Internal error: %g\n P = %s\n w = %s" % (m, P, w)
     return m
         
 def var( P : np.ndarray, w : np.ndarray, axis : int = None ) -> np.ndarray: 
@@ -204,14 +200,14 @@ def var( P : np.ndarray, w : np.ndarray, axis : int = None ) -> np.ndarray:
 def std( P : np.ndarray, w : np.ndarray, axis : int = None ) -> np.ndarray: 
     """ Compute P-weighted std deviation """
     s = math.sqrt( var(P,w,axis)  )
-    assert not np.isnan(s), "Internal error: %g" % s
+    assert np.sum(np.isnan(s)) == 0, "Internal error: %g" % s
     return s
        
 def err( P : np.ndarray, w : np.ndarray, axis : int = None ) -> np.ndarray: 
     """ Compute P-weighted std error """
     assert P.shape[0] > 0, "No P?"
     e = std(P,w,axis=axis) / math.sqrt( float(P.shape[0]) )
-    assert not np.isnan(e), "Internal error: %g" % e
+    assert np.sum(np.isnan(e)) == 0, "Internal error: %g" % e
     return e
 
 def mean_bins( x : np.ndarray, bins : int, weights = None ) -> np.ndarray:
@@ -319,8 +315,18 @@ def perct_exp( x : np.ndarray, lo : float, hi : float, weights : np.ndarray = No
                         np.sum( (weights*x)[ixHi:] ) / np.sum( weights[ixHi:] ) if not weights is None else np.mean( x[ixHi:] ) ] )
                
 # -------------------------------------------------
-# Generic basics
+# Generic basicsassert 
 # -------------------------------------------------
+
+def assert_iter_is_nan( d : dict, name = "" ):
+    """ iteratively verify that 'd' does not contain Nan """
+    for k in d:
+        v = d[k]
+        n = name + "." + k if name != "" else k
+        if isinstance( v, Mapping ):
+            assert_iter_is_nan( v, n )
+        else:
+            assert np.sum(np.isnan(v)) == 0, "Internal numerical error for %s: %g" % (n,v)
 
 def fmt_seconds( seconds : int ) -> str:
     """ Print nice format string for seconds """

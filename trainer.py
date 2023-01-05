@@ -104,7 +104,7 @@ def train(  gym,
     batch_size       = config.train("batch_size", None, help="Batch size")
     epochs           = config.train("epochs", 100, int, help="Epochs")
     time_out         = config.train("time_out", None, int, help="Timeout in seconds. None for no timeout.")
-    run_eagerly      = config.train("run_eagerly", False, bool, "Keras model run_eagerly. Turn to False for debugging. This slows down training.")
+    run_eagerly      = config.train("run_eagerly", False, help="Keras model run_eagerly. Turn to True for debugging. This slows down training.")
     learning_rate    = config.train("learing_rate", None, help="Manually set the learning rate of the optimizer")
 
     result0          = gym(world.tf_data)

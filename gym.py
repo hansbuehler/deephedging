@@ -15,6 +15,7 @@ _log = Logger(__file__)
 class VanillaDeepHedgingGym(tf.keras.Model):
     """ 
     Vanilla periodic policy search Deep Hedging engine https://arxiv.org/abs/1802.03042 
+    Vewrsion 2.0 supports recursive and iterative networks
     Hans Buehler, June 2022
     """
     
@@ -40,26 +41,26 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             dtype : tf.DType
                 Type
         """
-        tf.keras.Model.__init__(self, dtype=dtype )
-        self.config_action         = config.agent.detach()
-        self.config_utility        = config.objective.detach()
+        tf.keras.Model.__init__(self, name=name, dtype=dtype )
+        seed                       = config.tensorflow("seed", 423423423, help="Set tensor random seed. Leave to None if not desired.")
         self.hard_clip             = config.environment('hard_clip', False, bool, "Use min/max instread of soft clip for limiting actions by their bounds")
         hinge_softness             = config.environment('softclip_hinge_softness', 1., float, help="Specifies softness of bounding actions between lbnd_a and ubnd_a")
         self.softclip              = tfp.bijectors.SoftClip( low=0., high=1., hinge_softness=hinge_softness, name='soft_clip' )
+        self.utility               = MonetaryUtility( config.objective, name="utility",  dtype=self.dtype ) 
+        self.utility0              = MonetaryUtility( config.objective, name="utility0", dtype=self.dtype ) 
+        self.config_agent          = config.agent.detach()
+        self.agent                 = None
         config.done()
         
-        self.agent                 = None
-        self.utility               = None
+        if not seed is None:
+            tf.random.set_seed( seed )
         
     def build(self, shapes : dict ):
         """ Build the model. See call(). """
-        assert self.agent is None and self.utility is None, "build() called twioce?"
+        assert self.agent is None, "build() called twioce?"
         _log.verify( isinstance(shapes, Mapping), "'shapes' must be a dictionary type. Found type %s", type(shapes ))
-
         nInst         = int( shapes['market']['hedges'][2] )
-        self.agent    = AgentFactory( nInst, self.config_action, per_step=True, dtype=self.dtype ) 
-        self.utility  = MonetaryUtility( self.config_utility, dtype=self.dtype ) 
-        self.utility0 = MonetaryUtility( self.config_utility, dtype=self.dtype ) 
+        self.agent    = AgentFactory( nInst, self.config_agent, name="agent", dtype=self.dtype ) 
         
     def call( self, data : dict, training : bool = False ) -> dict:
         """
@@ -136,63 +137,64 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         action  = tf.zeros_like(trading_cost[:,0,:])
         actions = []
         deltas  = []        
+        state   = {}    # 2.0: support for recurrent models
 
-        with tf.control_dependencies( [ tf.debugging.assert_greater_equal( cost, 0., message="Cost for actions must not be negative" ),
-                                        tf.debugging.assert_all_finite( pnl - cost, message="Infinite values found")
-                                        ] ):
-                
-            for j in range(nSteps):
-                # build features
-                live_features = dict( action=action, delta=delta, cost=cost, pnl=pnl )
-                live_features.update( { f:features_per_path[f] for f in features_per_path } )
-                live_features.update( { f:features_per_step[f][:,j,:] for f in features_per_step})
-                live_features['delta'] = delta
-                live_features['action'] = action
-    
-                # action
-                action  =  self.agent( live_features, training=training )
-                _log.verify( action.shape.as_list() == [nBatch, nInst], "action: expected shape %s, found %s", [nBatch, nInst], action.shape.as_list() )
-                action  =  self._clip_actions(action, lbnd_a[:,j,:], ubnd_a[:,j,:] )
-                delta   =  delta + action
-                
-                # trade
-                cost    += tf.reduce_sum( tf.math.abs( action ) * trading_cost[:,j,:], axis=1 )
-                pnl     += tf.reduce_sum( action * hedges[:,j,:], axis=1 )
-                
-                actions.append( tf.stop_gradient( action )[:,tf.newaxis,:] )
-                deltas.append( tf.stop_gradient( delta )[:,tf.newaxis,:] )
-    
-            # compute utility
-            # ---------------
-    
-            features_time_0 = {}
-            features_time_0.update( { f:features_per_path[f] for f in features_per_path } )
-            features_time_0.update( { f:features_per_step[f][:,0,:] for f in features_per_step})
-    
-            utility           = self.utility( data=dict(features_time_0 = features_time_0,
-                                                        payoff          = payoff, 
-                                                        pnl             = pnl,
-                                                        cost            = cost ), training=training )
-            utility0          = self.utility0(data=dict(features_time_0 = features_time_0,
-                                                        payoff          = payoff, 
-                                                        pnl             = pnl*0.,
-                                                        cost            = cost*0.), training=training )
-    
-            # prepare output
-            # --------------
-                
-            return pdct(
-                loss     = -utility-utility0,
-                utility  = tf.stop_gradient( utility ),
-                utility0 = tf.stop_gradient( utility0 ),
-                gains    = tf.stop_gradient( payoff + pnl - cost ),
-                payoff   = tf.stop_gradient( payoff ),
-                pnl      = tf.stop_gradient( pnl ),
-                cost     = tf.stop_gradient( cost ),
-                actions  = tf.concat( actions, axis=1 ),
-                deltas   = tf.concat( deltas, axis=1 )
-            )
+        for j in range(nSteps):
+            # build features, including recurrent state
+            live_features = dict( action=action, delta=delta, cost=cost, pnl=pnl )
+            live_features.update( { f:features_per_path[f] for f in features_per_path } )
+            live_features.update( { f:features_per_step[f][:,j,:] for f in features_per_step})
+            live_features['delta'] = delta
+            live_features['action'] = action
+            live_features.update( state )
+
+            # action
+            action, state  =  self.agent( live_features, training=training )
+            _log.verify( action.shape.as_list() in [ [nBatch, nInst], [nInst] ], "Error: action: expected shape %s, found %s", [nBatch, nInst], action.shape.as_list() )
+            action         =  tf.debugging.check_numerics(action, "Numerical error computing action in %s" % __file__ )
+            action         =  self._clip_actions(action, lbnd_a[:,j,:], ubnd_a[:,j,:] )
+            delta          =  delta + action
             
+            # trade
+            cost           += tf.reduce_sum( tf.math.abs( action ) * trading_cost[:,j,:], axis=1 )
+            pnl            += tf.reduce_sum( action * hedges[:,j,:], axis=1 )
+            
+            actions.append( tf.stop_gradient( action )[:,tf.newaxis,:] )
+            deltas.append( tf.stop_gradient( delta )[:,tf.newaxis,:] )
+
+        pnl  = tf.debugging.check_numerics(pnl, "Numerical error computing pnl in %s" % __file__ )
+        cost = tf.debugging.check_numerics(cost, "Numerical error computing cost in %s" % __file__ )
+
+        # compute utility
+        # ---------------
+        
+        features_time_0 = {}
+        features_time_0.update( { f:features_per_path[f] for f in features_per_path } )
+        features_time_0.update( { f:features_per_step[f][:,0,:] for f in features_per_step})
+
+        utility           = self.utility( data=dict(features_time_0 = features_time_0,
+                                                    payoff          = payoff, 
+                                                    pnl             = pnl,
+                                                    cost            = cost ), training=training )
+        utility0          = self.utility0(data=dict(features_time_0 = features_time_0,
+                                                    payoff          = payoff, 
+                                                    pnl             = pnl*0.,
+                                                    cost            = cost*0.), training=training )
+        # prepare output
+        # --------------
+            
+        return pdct(
+            loss     = -utility-utility0,                         # [?,]
+            utility  = tf.stop_gradient( utility ),               # [?,]
+            utility0 = tf.stop_gradient( utility0 ),              # [?,]
+            gains    = tf.stop_gradient( payoff + pnl - cost ),   # [?,]
+            payoff   = tf.stop_gradient( payoff ),                # [?,]
+            pnl      = tf.stop_gradient( pnl ),                   # [?,]
+            cost     = tf.stop_gradient( cost ),                  # [?,]
+            actions  = tf.concat( actions, axis=1 ),              # [?,nSteps,nInst]
+            deltas   = tf.concat( deltas, axis=1 )                # [?,nSteps,nInst]
+        )
+        
     def _clip_actions( self, actions, lbnd_a, ubnd_a ):
         """ Clip the action within lbnd_a, ubnd_a """
         with tf.control_dependencies( [ tf.debugging.assert_greater_equal( ubnd_a, lbnd_a, message="Upper bound for actions must be bigger than lower bound" ),
@@ -209,7 +211,8 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             dbnd = ubnd_a - lbnd_a
             rel  = ( actions - lbnd_a ) / dbnd
             rel  = self.softclip( rel )
-            return tf.where( dbnd > 0., rel *  dbnd + lbnd_a, 0. )
+            act  = tf.where( dbnd > 0., rel *  dbnd + lbnd_a, 0. )
+            return tf.debugging.check_numerics(act, "Numerical error clipping action in %s" % __file__ )
 
     def _features( self, data : dict, nSteps : int) -> (dict, dict):
         """ 

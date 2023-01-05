@@ -94,10 +94,10 @@ class Plot_Loss_By_Epoch(object): # NOQA
 
 class Plot_Utility_By_Epoch(object): # NOQA
     """
-    Plot object for displaying utilities
+    Plot object for displaying utilities progress by epoch
     """
     
-    def __init__(self, *, fig, err_dev, epochs, lookback_window, show_epochs ): # NOQA
+    def __init__(self, *, fig, name, err_dev, epochs, lookback_window, show_epochs ): # NOQA
         
         self.lookback_window  = lookback_window
         self.show_epochs      = show_epochs
@@ -106,10 +106,10 @@ class Plot_Utility_By_Epoch(object): # NOQA
         self.lines            = None
         self.fills            = None
         self.ax               = fig.add_subplot()
-        self.ax.set_title("Monetay Utility")
+        self.ax.set_title("%s Monetay Utility" % name)
         self.ax.set_xlabel("Epochs")
         
-    def update(self, *, epoch, best_epoch, full_util, full_util0, full_util_err, full_util0_err, val_util, val_util0 ):# NOQA
+    def update(self, *, epoch, best_epoch, full_util, full_util_err, val_util ):# NOQA
     
         show_epoch0 = max( 0, epoch-self.show_epochs )
         show_epoch0 = min( best_epoch, show_epoch0 )
@@ -118,26 +118,22 @@ class Plot_Utility_By_Epoch(object): # NOQA
         best_full      = full_util[best_epoch]
         
         full_util      = np.array( full_util  )[show_epoch0:epoch+1]
-        full_util0     = np.array( full_util0 )[show_epoch0:epoch+1]
+        #full_util0     = np.array( full_util0 )[show_epoch0:epoch+1]
         full_util_err  = np.array( full_util_err  )[show_epoch0:epoch+1]
-        full_util0_err = np.array( full_util0_err )[show_epoch0:epoch+1]
+        #full_util0_err = np.array( full_util0_err )[show_epoch0:epoch+1]
         val_util       = np.array( val_util  )[show_epoch0:epoch+1]
-        val_util0      = np.array( val_util0 )[show_epoch0:epoch+1]        
+        #val_util0      = np.array( val_util0 )[show_epoch0:epoch+1]        
         
         if self.lines is None:
             self.lines = pdct()
             self.lines.full_util  = self.ax.plot( x, full_util,  "-", label="gains, full", color="red" )[0]
-            self.lines.full_util0 = self.ax.plot( x, full_util0, "-", label="payoff, full", color="blue" )[0]
             self.lines.val_util   = self.ax.plot( x, val_util,   ":", label="gains, val", color="red" )[0]
-            self.lines.val_util0  = self.ax.plot( x, val_util0,  ":", label="payoff, val", color="blue" )[0]
             self.lines.best       = self.ax.plot( [best_epoch+1], [best_full], "*", label="best", color="black" )[0]
             self.ax.legend()
             
         else:
             self.lines.full_util.set_ydata( full_util )
-            self.lines.full_util0.set_ydata( full_util0 )
             self.lines.val_util.set_ydata( val_util )
-            self.lines.val_util0.set_ydata( val_util0 )
             for line in self.lines:
                 if line == 'best':
                     pass
@@ -151,11 +147,10 @@ class Plot_Utility_By_Epoch(object): # NOQA
             for k in self.fills:
                 self.fills[k].remove()
             self.fills.full_util  = self.ax.fill_between( x, full_util-full_util_err*self.err_dev, full_util+full_util_err*self.err_dev, color="red", alpha=0.2 )
-            self.fills.full_util0 = self.ax.fill_between( x, full_util0-full_util0_err*self.err_dev, full_util0+full_util0_err*self.err_dev, color="blue", alpha=0.1 )
 
         # y min/max            
-        min_ = min( np.min(full_util[-self.lookback_window:]), np.min(full_util0[-self.lookback_window:]) )
-        max_ = max( np.max(full_util[-self.lookback_window:]), np.max(full_util0[-self.lookback_window:]) )
+        min_ = np.min(full_util[-self.lookback_window:])
+        max_ = np.max(full_util[-self.lookback_window:])
         self.ax.set_ylim(min_-0.001,max_+0.001)
         self.ax.set_xlim(show_epoch0+1,show_epoch0+1+self.show_epochs)
 
@@ -163,9 +158,58 @@ class Plot_Utility_By_Epoch(object): # NOQA
 # By terminal outcome
 # -------------------------------------------------------
 
+class Plot_Returns_By_Spot_Ret(object): # NOQA
+    """
+    Plot object for showing hedging performance by return of spot (the most intuitive)
+    """
+    
+    def __init__(self, *, fig, ret_name, set_name, bins ): # NOQA
+        
+        self.bins    = bins
+        self.ax      = fig.add_subplot()            
+        self.line    = None
+        self.line_h  = None
+        self.ax.set_title("%s by Spot Return\n(%s))" % (ret_name,set_name) )
+        self.ax.set_xlabel("Spot return")
+        
+    def update(self, *, P, gains, hedge, payoff, spot_ret ):# NOQA
+
+        ixs      = np.argsort( spot_ret )
+        x        = spot_ret[ixs]
+        gains    = gains[ixs]
+        hedge    = hedge[ixs]
+        payoff   = payoff[ixs]
+        x        = mean_bins( x, bins=self.bins, weights=P )
+        gains    = mean_bins( gains, bins=self.bins, weights=P )
+        hedge    = mean_bins( hedge, bins=self.bins, weights=P )
+        payoff   = mean_bins( payoff, bins=self.bins, weights=P )
+        
+        if self.line is None:
+            self.line   =  self.ax.plot( x, gains, label="gains" )[0]
+            self.ax.plot( x, payoff, ":", label="payoff" )
+            self.line_h =  self.ax.plot( x, hedge, label="hedge" )[0]
+            self.ax.plot( x, payoff*0., ":", color="black" )
+            self.ax.legend()
+        else:
+            self.line.set_ydata( gains )
+            self.line_h.set_ydata( hedge )
+
+        # below is pretty heuristic. If training works, below makes sense
+        # as the gains process and the payoff are similar.
+        # it produces less good visuals if training is bad ...
+        min_ = min( np.min(gains), np.min(payoff) )
+        max_ = max( np.max(gains), np.max(payoff) )
+        if min_ >= max_-0.00001:
+            min_ -= 0.0001
+            max_ += 0.0001
+        dx = (max_-min_)
+        min_ -= 0.1*dx
+        max_ += 0.1*dx
+        self.ax.set_ylim(min_,max_)            
+
 class Plot_Returns_By_Percentile(object): # NOQA
     """
-    Plot object for showing hedging performance
+    Plot object for showing hedging performance by percentile returbs
     """
     
     def __init__(self, *, fig, set_name, bins ): # NOQA
@@ -201,52 +245,9 @@ class Plot_Returns_By_Percentile(object): # NOQA
             max_ += 0.0001
         #self.ax.set_ylim(min_,max_)            
 
-class Plot_Returns_By_Spot_Ret(object): # NOQA
-    """
-    Plot object for showing hedging performance
-    """
-    
-    def __init__(self, *, fig, set_name, bins ): # NOQA
-        
-        self.bins    = bins
-        self.ax      = fig.add_subplot()            
-        self.line    = None
-        self.line_h  = None
-        self.ax.set_title("Cash Returns by Spot Return\n(%s))" % set_name )
-        self.ax.set_xlabel("Spot return")
-        
-    def update(self, *, P, gains, hedge, payoff, spot_ret ):# NOQA
-
-        ixs      = np.argsort( spot_ret )
-        x        = spot_ret[ixs]
-        gains    = gains[ixs]
-        hedge     = hedge[ixs]
-        payoff   = payoff[ixs]
-        x        = mean_bins( x, bins=self.bins, weights=P )
-        gains    = mean_bins( gains, bins=self.bins, weights=P )
-        hedge    = mean_bins( hedge, bins=self.bins, weights=P )
-        payoff   = mean_bins( payoff, bins=self.bins, weights=P )
-        
-        if self.line is None:
-            self.line   =  self.ax.plot( x, gains, label="gains" )[0]
-            self.ax.plot( x, payoff, ":", label="payoff" )
-            self.line_h =  self.ax.plot( x, hedge, label="hedge" )[0]
-            self.ax.plot( x, payoff*0., ":", color="black" )
-            self.ax.legend()
-        else:
-            self.line.set_ydata( gains )
-            self.line_h.set_ydata( hedge )
-
-        min_ = min( np.min(gains), np.min(gains) )
-        max_ = max( np.max(gains), np.max(gains) )
-        if min_ >= max_-0.00001:
-            min_ -= 0.0001
-            max_ += 0.0001
-        #self.ax.set_ylim(min_,max_)            
-
 class Plot_Utility_By_CumPercentile(object): # NOQA
     """
-    Plot object for showing hedging performance
+    Plot utility by return percentile. The final percentile is the objective.
     """
     
     def __init__(self, *, fig, set_name, bins ): # NOQA
@@ -286,7 +287,7 @@ class Plot_Utility_By_CumPercentile(object): # NOQA
 
 class Plot_Activity_By_Step(object): # NOQA
     """
-    Plot object for showing hedging performance
+    Plot action or delta by step.
     """
     
     def __init__(self, *, fig, activity_name, pcnt_lo, pcnt_hi, inst_names ): # NOQA
@@ -411,7 +412,7 @@ class NotebookMonitor(tf.keras.callbacks.Callback):
         """ Called when an epoch ends """
         if self.epoch == -1:
             empty = " "*200
-            print("\r\33[2K "+empty+"\r", end='')                                            
+            print("\r\33[2K "+empty+"\r", end='')
         self.full_result = npCast( self.gym(self.world.tf_data) )
         self.val_result  = npCast( self.gym(self.val_world.tf_data) )
         self.epoch       = epoch
@@ -419,7 +420,7 @@ class NotebookMonitor(tf.keras.callbacks.Callback):
         # losses
         # Note that we apply world.sample_weights to all calculations
         # so we are in sync with keras.fit()
-        self.losses.batch.append(   float( logs['loss_default_loss'] ) ) # we read the metric instead of 'loss' as this appear to be weighted properly
+        self.losses.batch.append(   float( logs['loss_default_loss'] ) ) # we read the metric instead of 'loss' as this appears to be weighted properly
         self.losses.full.append(    mean(self.P, self.full_result.loss) )
         self.losses.val.append(     mean(self.val_P, self.val_result.loss) )
         self.losses.init.append(    self.init_loss )
@@ -471,18 +472,24 @@ class NotebookMonitor(tf.keras.callbacks.Callback):
             # by epoch
             self.plot_loss_by_epoch         = Plot_Loss_By_Epoch(    fig=self.fig, title="Losses (recent)", epochs=self.epochs, err_dev=self.err_dev, lookback_window=self.lookback_window, show_epochs=self.show_epochs )
             self.plot_loss_by_epoch_all     = Plot_Loss_By_Epoch(    fig=self.fig, title="Losses (all)", epochs=self.epochs, err_dev=self.err_dev, lookback_window=self.epochs, show_epochs=self.epochs )
-            self.plot_utility_by_epoch      = Plot_Utility_By_Epoch( fig=self.fig, err_dev=self.err_dev, epochs=self.epochs, lookback_window=self.lookback_window, show_epochs=self.show_epochs )
+            self.plot_gains_utility_by_epoch = Plot_Utility_By_Epoch( fig=self.fig, name="Gains", err_dev=self.err_dev, epochs=self.epochs, lookback_window=self.lookback_window, show_epochs=self.show_epochs )
+            self.plot_payoff_utility_by_epoch = Plot_Utility_By_Epoch( fig=self.fig, name="Payoff", err_dev=self.err_dev, epochs=self.epochs, lookback_window=self.lookback_window, show_epochs=self.show_epochs )
 
             self.fig.next_row()
             
             # by performance - training
-            self.plot_returns_by_spot_ret          = Plot_Returns_By_Spot_Ret(      fig=self.fig, set_name="training set", bins=self.bins )
-            self.plot_returns_by_percentile        = Plot_Returns_By_Percentile(    fig=self.fig, set_name="training set", bins=self.bins )
+            # a key aspect of using utility based pricing is that when we solve \sup_a U( Z + a dH ), we will get a non-zere value u* = U( Z + a* dH ) at the optimal point a*.
+            # This is the cash value of the position Z+a*dH, and it must be compared to the unhedged utility u0 = U(Z).
+            
+            self.plot_returns_by_spot_adj_ret      = Plot_Returns_By_Spot_Ret(      fig=self.fig, ret_name = "Returns less Utility", set_name="training set", bins=self.bins )
+            self.plot_returns_by_spot_ret          = Plot_Returns_By_Spot_Ret(      fig=self.fig, ret_name = "Raw Returns", set_name="training set", bins=self.bins )
+#            self.plot_returns_by_percentile        = Plot_Returns_By_Percentile(    fig=self.fig, set_name="training set", bins=self.bins )
             self.plot_utility_by_cumpercentile     = Plot_Utility_By_CumPercentile( fig=self.fig, set_name="training set", bins=self.bins )
             
             # by performance - validation
-            self.val_plot_returns_by_spot_ret      = Plot_Returns_By_Spot_Ret(      fig=self.fig, set_name="validation set", bins=self.bins )
-            self.val_plot_returns_by_percentile    = Plot_Returns_By_Percentile(    fig=self.fig, set_name="validation set", bins=self.bins )
+            self.val_plot_returns_by_spot_adj_ret  = Plot_Returns_By_Spot_Ret(      fig=self.fig, ret_name = "Returns less Utility", set_name="validation set", bins=self.bins )
+            self.val_plot_returns_by_spot_ret      = Plot_Returns_By_Spot_Ret(      fig=self.fig, ret_name = "Raw Returns", set_name="validation set", bins=self.bins )
+            #self.val_plot_returns_by_percentile    = Plot_Returns_By_Percentile(    fig=self.fig, set_name="validation set", bins=self.bins )
             self.val_plot_utility_by_cumpercentile = Plot_Utility_By_CumPercentile( fig=self.fig, set_name="validation set", bins=self.bins )
 
             self.fig.next_row()
@@ -500,22 +507,27 @@ class NotebookMonitor(tf.keras.callbacks.Callback):
         # by epoch
         self.plot_loss_by_epoch.update( epoch=self.epoch, losses=self.losses, loss_errs=self.losses_err, best_epoch=self.best_epoch, best_loss=self.best_loss )
         self.plot_loss_by_epoch_all.update( epoch=self.epoch, losses=self.losses, loss_errs=self.losses_err, best_epoch=self.best_epoch, best_loss=self.best_loss )
-        self.plot_utility_by_epoch.update( epoch=self.epoch, best_epoch=self.best_epoch, **self.utilities )
+        self.plot_gains_utility_by_epoch.update( epoch=self.epoch, best_epoch=self.best_epoch,  full_util=self.utilities.full_util, full_util_err=self.utilities.full_util_err, val_util=self.utilities.val_util)
+        self.plot_payoff_utility_by_epoch.update( epoch=self.epoch, best_epoch=self.best_epoch,  full_util=self.utilities.full_util0, full_util_err=self.utilities.full_util0_err, val_util=self.utilities.val_util0)
 
         # by performance - training
+        # Note that subtract the OCE utility from gains (the hedged portfolio) and payoff (the input).
+        # Subtracting the OCE utility means that both are of equivalent utility.
         adjusted_full_gains  = self.full_result.gains - mean(self.P, self.full_result.utility)
         adjusted_full_hedge  = (self.full_result.gains - self.full_result.payoff) - mean(self.P, self.full_result.utility)
         adjusted_full_payoff = self.full_result.payoff - mean(self.P, self.full_result.utility0)
-        self.plot_returns_by_spot_ret.update( P=self.P, gains=adjusted_full_gains, hedge=adjusted_full_hedge, payoff=adjusted_full_payoff, spot_ret=self.world.diagnostics.per_path.spot_ret )
-        self.plot_returns_by_percentile.update( P=self.P, gains=adjusted_full_gains, payoff=adjusted_full_payoff )
+        self.plot_returns_by_spot_adj_ret.update( P=self.P, gains=adjusted_full_gains, hedge=adjusted_full_hedge, payoff=adjusted_full_payoff, spot_ret=self.world.diagnostics.per_path.spot_ret )
+        self.plot_returns_by_spot_ret.update( P=self.P, gains=self.full_result.gains, hedge=self.full_result.gains - self.full_result.payoff, payoff=self.full_result.payoff, spot_ret=self.world.diagnostics.per_path.spot_ret )
+        #self.plot_returns_by_percentile.update( P=self.P, gains=adjusted_full_gains, payoff=adjusted_full_payoff )
         self.plot_utility_by_cumpercentile.update( P=self.P, utility=self.full_result.utility, utility0=self.full_result.utility0 )
         
         # by performance - validation
         adjusted_val_gains  = self.val_result.gains - mean(self.val_P, self.val_result.utility)
         adjusted_val_hedge  = (self.val_result.gains - self.val_result.payoff) - mean(self.val_P, self.val_result.utility)
         adjusted_val_payoff = self.val_result.payoff - mean(self.val_P, self.val_result.utility0)
-        self.val_plot_returns_by_spot_ret.update( P=self.val_P, gains=adjusted_val_gains, hedge=adjusted_val_hedge, payoff=adjusted_val_payoff, spot_ret=self.val_world.diagnostics.per_path.spot_ret )
-        self.val_plot_returns_by_percentile.update( P=self.val_P, gains=adjusted_val_gains, payoff=adjusted_val_payoff )
+        self.val_plot_returns_by_spot_adj_ret.update( P=self.val_P, gains=adjusted_val_gains, hedge=adjusted_val_hedge, payoff=adjusted_val_payoff, spot_ret=self.val_world.diagnostics.per_path.spot_ret )
+        self.val_plot_returns_by_spot_ret.update( P=self.val_P, gains=self.val_result.gains, hedge=self.val_result.gains - self.val_result.payoff, payoff=self.val_result.payoff, spot_ret=self.val_world.diagnostics.per_path.spot_ret )
+        #self.val_plot_returns_by_percentile.update( P=self.val_P, gains=adjusted_val_gains, payoff=adjusted_val_payoff )
         self.val_plot_utility_by_cumpercentile.update( P=self.val_P, utility=self.val_result.utility, utility0=self.val_result.utility0 )
         
         # activity by step
@@ -550,6 +562,10 @@ class NotebookMonitor(tf.keras.callbacks.Callback):
         """ Plot final result and copy best weights to model """
         if self.why_stopped == "Aborted":
             print("\r                                      \r*** Aborted ... ", end='')
-        self.plot()
         self.gym.set_weights( self.best_weights )
-        print("\n Status: %s\n" % self.why_stopped )
+        self.full_result = npCast( self.gym(self.world.tf_data) )
+        self.val_result  = npCast( self.gym(self.val_world.tf_data) )
+        self.plot()
+        print("\n Status: %s.\n Weights set to best epoch: %ld\n" % (self.why_stopped, self.best_epoch) )
+        self.fig.close()
+        

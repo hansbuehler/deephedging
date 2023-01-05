@@ -2,17 +2,20 @@
 ## Reinforcement Learning for Hedging Derviatives under Market Frictions
 ### Beta version. Please report any issues. Please see installation support below.
 
-This archive contains a sample implementation of of the Deep Hedging (http://deep-hedging.com) framework.
+This archive contains a sample implementation of of the [Deep Hedging framework](http://deep-hedging.com).
 The notebook directory has a number of examples on how to use it. The framework relies on the pip package [cdxbasics](https://github.com/hansbuehler/cdxbasics).
 
 The Deep Hedging problem for a horizon $T$ hedged over $M$ time steps with $N$ hedging instruments is given as
-<P>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$ \max_{a}: U[ \
-        Z_T + \sum_{t=0}^{T-1} a(f_t) \cdot DH_t - | a(f_t)\gamma_t|
-     \ \right]  $
-<p>
-where  $DH_t:=H_T - H_t$ denotes the vector of returns of the hedging instruments to $T$. In pur code base cost are proportional.
-The policy $a$ is a neural network which is fed both pre-computed and live features $f_t$ at each time step.
+<center>
+<img src="pictures/dh_formula.png" />
+</center>
+where $DH_t:=H_T - H_t$ denotes the vector of returns of the hedging instruments to $T$. In transaction cost are proportional with proportionality factor~$\gamma$.
+The policy $a$ is a neural network which is fed both pre-computed and live features $f_t$ at each time step. The operator $U$ is a <i>monetary utility</i>. Think of it as a risk-adjusted return. A classic example is the entropy, given by
+<center>
+<img src="pictures/uexp_formula.png" />
+</center>
+The code base supports a number of ulility-based monetary utilities which can be found in the
+file <tt>objectives.py</tt>.
 
 <p>
 To test the code run <tt>notebooks/trainer.ipynb</tt>.
@@ -21,16 +24,16 @@ To test the code run <tt>notebooks/trainer.ipynb</tt>.
 <p>
 In order to run the Deep Hedging, we require:
 <ol>
-    <li><b>Market data</b>: this is referred to as a <tt>world</tt>. Among other members, world has a <tt>td_data</tt> member which
+    <li><b>Market data</b>: this is referred to as a <tt>world</tt>. Among other members, world has a <tt>tf_data</tt> member which
         represents the feature sets across training samples, and <tt>tf_sample_weights</tt> which is the probability distribution
-        across samples. The code provides a simplistic default implementation, but for any real application it is recommend to rely
-        on fully machine learned market simulators such as https://arxiv.org/abs/2112.06823.
+        across samples. The sample code provides a simplistic default world implementation, but for any real application it is recommend to rely
+        on (fully machine learned market simulators)[https://arxiv.org/abs/2112.06823].
     </li>
-    <li><b>Gym</b>: the main Keras custom model. It is a Monte Carlo loop arund the actual underlying <tt>agent.py</tt> networks.<br>
-        Given a <tt>world</tt> we can compute the loss given the prevailing action network as <tt>gym(world.tf_data)</tt>.
+    <li><b>Gym</b>: the main Keras custom model. It is a Monte Carlo loop arund the actual underlying <tt>agent.py</tt> networks which represents $a$ in the formula above.<br>
+        Given a <tt>world</tt> object we may compute the loss given the prevailing action network as <tt>gym(world.tf_data)</tt>.
     </li>
-    <li><b>Train</b>: some cosmetics around <tt>keras.fit()</tt> with some nice live visualization using matplotlib if you 
-        are in jupyter. See animation below.
+    <li><b>Train</b>: some cosmetics around <tt>keras.fit()</tt> with some nice live visualization of our training progress using matplotlib if you 
+        are in jupyter. See discussion below.
     </li>
 </ol>
 
@@ -48,14 +51,14 @@ Returns of the hedges, i.e. the vector $DH_t:=H_T - H_t$. That means $H_t$ is th
 In most applications $T$ is chosen such that $H_T$
 is the actual payoff.<br>
     For example, if $S_t$ is spot, $w_t$ is the implied volatility at $t$,  $T$ is time-to-maturity, and
-    $k$ a relative strike, then $H_t = \mathrm{BSCall}( S_t, w_t; T, kS_t )$ and $H_T = ( S_{t+T} / S_t - k )^+$.
+    $k$ a relative strike, then $H_t = BSCall( S_t, w_t; T, kS_t )$ and $H_T = ( S_{t+T} / S_t - k )^+$.
 <br>&nbsp;
 </li>
 <li>
 <tt>data['martket']['cost']</tt> (:,M,N)<br>
 Cost $\gamma_t$ of trading the hedges in $t$ for proportional cost $c_t(a) = \gamma_t\cdot |a|$. 
 More advanced implementations allow to pass the cost function itself as a tensorflow model.<br>
-    In the simple setting an example for the cost of trading a vanilla call could be $\gamma_t = \gamma^D\, BSDelta(t,\cdots)+ \gamma^V\,BSVega(t,\cdots)$.
+    In the simple setting an example for the cost of trading a vanilla call could be $\gamma_t = \gamma^D\, \Delta(t,\cdots)+ \gamma^V\,BSVega(t,\cdots)$.
 <br>&nbsp;
 </li><li>
 <tt>data['martket']['unbd_a'], data['martket']['lnbd_a']</tt> (:,M,N)<br>

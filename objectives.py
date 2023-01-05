@@ -7,8 +7,8 @@ June 30, 2022
 @author: hansbuehler
 """
 
-from .base import Logger, Config, tf, dh_dtype, VariableModel
-from .agents import AgentFactory
+from .base import Logger, Config, tf, dh_dtype
+from .layers import DenseLayer, VariableLayer
 from cdxbasics import PrettyDict as pdct
 from collections.abc import Mapping
 _log = Logger(__file__)
@@ -37,8 +37,6 @@ class MonetaryUtility(tf.keras.layers.Layer):
     Hans Buehler, June 2022
     """
     
-    Default_features = [ 'price', 'delta', 'time_left' ]
-
     def __init__(self, config : Config, name : str = None, dtype : tf.DType = dh_dtype ):
         """
         Parameters
@@ -56,18 +54,18 @@ class MonetaryUtility(tf.keras.layers.Layer):
                 dtype
         """
         tf.keras.layers.Layer.__init__(self, name=name, dtype=dtype )
-        self.utility    = config("utility","exp2", ['mean', 'exp', 'exp2', 'vicky', 'cvar', 'quad'],\
-                                 help="Type of monetary utility: mean, exp, exp2, vicky, cvar, quad")
+        self.utility    = config("utility","exp2", ['mean', 'exp', 'exp2', 'vicky', 'cvar', 'quad'], help="Type of monetary utility")
         self.lmbda      = config("lmbda", 1., float, help="Risk aversion")
         _log.verify( self.lmbda > 0., "'lmnda' must be positive. Use utility 'mean' for zero lambda")
         
         if self.utility in ["mean"]:
-            self.y       = tf.Variable( 0., trainable=False )
+            _log.warning("Using utility mean - OCE 'y' is now fixed.")
+            self.y       = VariableLayer( 0., trainable=False, name=name+"_OCE_y_fixed" if not name is None else "OCE_y_fixed", dtype=dtype )
             config.y.mark_done()  # avoid error message from config.done()
-        elif config.y("use_y", False):
-            self.y       = VariableModel( 0., name="OCE_y", dtype=self.dtype  )
         else:       
-            self.y       = AgentFactory( 1, config.y, per_step=False, name="OCE_y", dtype=dtype )
+            features     = config.y("features", [], list, "Path-wise features used to define 'y'. If left empty, then 'y' becomes a simple variable.")
+            network      = config.y.network
+            self.y       = DenseLayer( features=features, nOutput=1, initial_value=0., config=network, name= name+"_OCE_y" if not name is None else "OCE_y", dtype=dtype )
         config.done() # all config read
         
     @property
@@ -127,7 +125,8 @@ class MonetaryUtility(tf.keras.layers.Layer):
         """ 
         _log.verify( isinstance(features_time_0, Mapping), "'features_time_0' must be a dictionary type. Found type %s", type(features_time_0))
         features_time_0 = features_time_0 if not features_time_0 is None else {}
-        y               = self.y( features_time_0, training=training ) 
+        y     = self.y( features_time_0, training=training ) 
+        y     = tf.debugging.check_numerics(y, "Numerical error computing OCE_y in %s" % __file__ )
         return utility(self.utility, self.lmbda, X, y=y )
         
 @tf.function  
@@ -218,6 +217,9 @@ def utility( utility : str, lmbda : float, X : tf.Tensor, y : tf.Tensor = 0. ) -
         d = 1 - lmbda * gains / tf.math.sqrt( 1. + (lmbda * gains) ** 2)
         
     _log.verify( not u is None, "Unknown utility function '%s'", utility )      
+    
+    u = tf.debugging.check_numerics(u, "Numerical error computing u in %s" % __file__ )
+    d = tf.debugging.check_numerics(d, "Numerical error computing d in %s" % __file__ )
     
     return pdct(
             u = u,

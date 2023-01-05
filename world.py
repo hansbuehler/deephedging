@@ -8,7 +8,7 @@ June 30, 2022
 @author: hansbuehler
 """
 
-from deephedging.base import Logger, Config, dh_dtype, tf, tfCast, pdct, tf_dict
+from deephedging.base import Logger, Config, dh_dtype, tf, tfCast, pdct, tf_dict, assert_iter_is_nan
 from cdxbasics.dynaplot import figure, colors_tableau
 import numpy as np
 import math as math
@@ -141,7 +141,7 @@ class SimpleWorld_Spot_ATM(object):
         _log.verify( ubnd_av - lbnd_av > 0., "'ubnd_av - lbnd_as' must be positive; found %g", ubnd_av - lbnd_av )
         
         # drift
-        drift    = config("drift", 0.1, float, help="Mean drift of the asset")
+        drift    = config("drift", 0.1, float, help="Mean drift of the asset. This is the total drift.")
         kappa_m  = config("meanrev_drift", 1., float, help="Mean reversion of the drift of the asset")
         xi_m     = config("drift_vol", 0.1, float, help="Vol of the drift")
                 
@@ -260,8 +260,8 @@ class SimpleWorld_Spot_ATM(object):
         rvol       = rvol[ixs,:]
         ivol       = ivol[ixs,:]
 
-        # instruments
-        # ----------
+        # hedging instruments
+        # -------------------
         
         dS         = spot[:,nSteps][:,np.newaxis] - spot[:,:nSteps]
         cost_dS    = spot[:,:nSteps] * cost_s
@@ -278,7 +278,7 @@ class SimpleWorld_Spot_ATM(object):
             cost_dC    = None
             
         else:
-            # add call prices
+            # add hedging instrument: calls
             mat_spot   = spot[:,ttm_steps:ttm_steps+nSteps]   # spot at maturity of each option
             opt_spot   = spot[:,:nSteps]                      # spot at trading date of each option
             payoffs    = np.maximum( 0, mat_spot - strike * opt_spot )
@@ -331,7 +331,7 @@ class SimpleWorld_Spot_ATM(object):
                 lbnd_a    = lbnd_a,
                 payoff    = payoff
             )
-        
+                
         # features
         # observable variables for the agent
         self.data.features = pdct(
@@ -345,7 +345,7 @@ class SimpleWorld_Spot_ATM(object):
                 time_left      = np.full( (nSamples, nSteps), time_left[np.newaxis,:] ),
                 sqrt_time_left = np.full( (nSamples, nSteps), sqrt_time_left[np.newaxis,:] ),
                 # specific to equity spot
-                spot   = spot[:,:nSteps], # spot level
+                spot   = spot[:,:nSteps], # spot level (S0,....,Sm-1). This does not include the terminal spot level.
                 ivol   = ivol,            # implied vol at beginning of each interval
                 ),
             per_path = pdct(),
@@ -357,6 +357,9 @@ class SimpleWorld_Spot_ATM(object):
                 call_vega   = call_vega,           # vega
                 cost_v      = cost_dC
             )
+            
+        # check numerics
+        assert_iter_is_nan( self.data, "data" )
  
         # data
         # what gym() gets
@@ -372,12 +375,16 @@ class SimpleWorld_Spot_ATM(object):
             per_step = pdct(
                 drift     = rdrift,            # drift fora this interval
                 rvol      = rvol,              # realized vol for this interval
-                spot1     = spot[:,:nSteps+1], # spot including at maturity
+                spot1     = spot[:,:nSteps+1], # spot S0...Sm e.g. spot including spot at maturity
                 ),
             per_path = pdct(
-                spot_ret  = spot[:,nSteps] / spot[:,0] - 1 # spot return
+                spot_ret  = spot[:,nSteps] / spot[:,0] - 1, # terminal spot return Sm/S0-1
+                spotT     = spot[:,nSteps]                 # terminal spot
                 )
             )
+
+        # check numerics
+        assert_iter_is_nan( self.diagnostics, "diagnostics" )
         
         # generating sample weights
         # the tf_sample_weights is passed to keras train and must be of size [nSamples,1]
