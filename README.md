@@ -6,18 +6,19 @@ This archive contains a sample implementation of of the [Deep Hedging framework]
 
 The notebook directory has a number of examples on how to use it. The framework relies on the pip package [cdxbasics](https://github.com/hansbuehler/cdxbasics).
 
-### Deep Hedging
+The Deep Hedging problem for a horizon $T$ hedged over $M$ time steps with $N$ hedging instruments is finding an optimal action function $a$ 
+as a function of feature states $s_0,\ldots,s_{T-1}$ which solves
 
-The Deep Hedging problem for a horizon $T$ hedged over $M$ time steps with $N$ hedging instruments is given as 
- <center>
- <img src="pictures/dh_formula.png" />
- </center>
-where $DH_t:=H_T - H_t$ denotes the vector of returns of the hedging instruments to $T$. In transaction cost are proportional with proportionality factor~$\gamma$.
-The policy $a$ is a neural network which is fed both pre-computed and live features $f_t$ at each time step. The operator $U$ is a <i>monetary utility</i>. Think of it as a risk-adjusted return. A classic example is the entropy, given by
-<center>
-<img src="pictures/uexp_formula.png" />
-</center>
-The code base supports a number of ulility-based monetary utilities which can be found in the
+$$
+ \sup_a:\ \mathrm{E}\left[\ 
+    Z_T + \sum_{t=0}^{T-1} a(s_t) DH_t + \gamma_t  | a(s_t) |
+ \ \right] \ .
+$$
+
+Here
+* $DH_t:=H_T - H_t$ denotes the vector of returns of the $M$ hedging instruments from $t$ to $T$;
+* $\gamma_t$ represents the vector of proportional transaction cost; and
+* $U$ is a _monetary utility_ which can be thought of as a risk-adjusted return.<br>A classic example is the entropy, given by $U(X) := - \frac1\lambda \log\ \mathrm{E}\left[\ \exp(-\lambda X) \right] $. The code base supports a number of utility-based monetary utilities which can be found in the
 file <tt>objectives.py</tt>.
 
 <p>
@@ -30,7 +31,7 @@ In order to run the Deep Hedging, we require:
     <li><b>Market data</b>: this is referred to as a <tt>world</tt>. Among other members, world has a <tt>tf_data</tt> member which
         represents the feature sets across training samples, and <tt>tf_sample_weights</tt> which is the probability distribution
         across samples. The sample code provides a simplistic default world implementation, but for any real application it is recommend to rely
-        on (fully machine learned market simulators)[https://arxiv.org/abs/2112.06823].
+        on fully machine learned market simulators, c.f. https://arxiv.org/abs/2112.06823.
     </li>
     <li><b>Gym</b>: the main Keras custom model. It is a Monte Carlo loop arund the actual underlying <tt>agent.py</tt> networks which represents $a$ in the formula above.<br>
         Given a <tt>world</tt> object we may compute the loss given the prevailing action network as <tt>gym(world.tf_data)</tt>.
@@ -87,7 +88,7 @@ on fully machine learned market simulators such as https://arxiv.org/abs/2112.06
     <li>Use Python 3.7
     <li>Pip (or conda) install <tt>cdxbasics</tt> version 0.1.42 or higher
     <li>Install TensorFlow 2.7 or higher
-    <li>Install tensorflow_probability 0.15 or higher
+    <li>Install tensorflow_probability 0.15 or higher, c.f. https://anaconda.org/conda-forge/tensorflow-probability
     <li>Download this git directory in your Python path such that <tt>import deephedging.world</tt> works.
     <li>Open <tt>notebooks/trainer.ipynb</tt> and run it. 
 </ul>
@@ -399,8 +400,8 @@ Here is a stub which you may want to put ahead of any notebook you use (*)
 
 ### AWS SageMaker
 
-_Updated (Jan 1 2022):_ AWS SageMaker now supports tensorflow 2.7, both with and without GPU.
-Create a new instance and select the <tt>conda_tensorflow2_p38</tt> enviroment.
+At the time of writing AWS SageMaker does not support TF 2.7. Moreover, it does not support GPUs for TF above 2.3.
+For using 2.6 without GPUs - which is faster than 2.3 with GPUs -, create a new instance and select the <tt>conda_tensorflow2_p36</tt> enviroment.
 
 In a terminal type
         

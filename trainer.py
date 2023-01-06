@@ -8,7 +8,7 @@ June 30, 2022
 @author: hansbuehler
 """
 
-from .base import Logger, Config, tf
+from .base import Logger, Config, tf, Int
 from .plot_training import NotebookMonitor
 _log = Logger(__file__)
 
@@ -83,14 +83,13 @@ def train(  gym,
     Train our deep hedging model with with the provided world.
     Main training loop.
     
-    
     Parameters
     ----------
         gym       : VanillaDeepHedgingGym or similar interface
         world     : world with training data
         val_world : world with validation data (e.g. computed using world.clone())
         config    : configuration
-        verbose   : how much detail to print
+        verbose   : how much detail to print during training (not used)
 
     Returns
     -------
@@ -102,10 +101,12 @@ def train(  gym,
     
     optimzier        = config.train("optimizer", "RMSprop", help="Optimizer" )
     batch_size       = config.train("batch_size", None, help="Batch size")
-    epochs           = config.train("epochs", 100, int, help="Epochs")
+    epochs           = config.train("epochs", 100, Int>0, help="Epochs")
     time_out         = config.train("time_out", None, int, help="Timeout in seconds. None for no timeout.")
-    run_eagerly      = config.train("run_eagerly", False, help="Keras model run_eagerly. Turn to True for debugging. This slows down training.")
+    run_eagerly      = config.train("run_eagerly", False, help="Keras model run_eagerly. Turn to True for debugging. This slows down training. Use None for default.")
     learning_rate    = config.train("learing_rate", None, help="Manually set the learning rate of the optimizer")
+    tboard_log_dir   = config.train.tensor_board("log_dir", "", str, "Specify tensor board log directory")
+    tboard_freq      = config.train.tensor_board("hist_freq", 1, Int>0, "Specify tensor board log frequency")
 
     result0          = gym(world.tf_data)
     monitor          = MonitorFactory(  gym=gym, 
@@ -117,10 +118,16 @@ def train(  gym,
                                         time_out=time_out,
                                         config=config.visual )
  
+    # See https://docs.aws.amazon.com/sagemaker/latest/dg/studio-tensorboard.html
+    tboard = None
+    if tboard_log_dir != "":
+        tboard        = tf.keras.callbacks.TensorBoard(log_dir=tboard_log_dir, histogram_freq=tboard_freq)
+        print("\r\33[2KTensorBoard log directory set to %s" % tboard_log_dir)
+                                                 
     gym.compile(    optimizer        = optimzier, 
                     loss             = dict( loss=default_loss ),
                     weighted_metrics = dict( loss=default_loss ),
-                    run_eagerly = run_eagerly)
+                    run_eagerly      = run_eagerly)
 
     if not learning_rate is None:
         gym.optimizer.lr = float( learning_rate )
@@ -131,7 +138,7 @@ def train(  gym,
                         batch_size     = batch_size,
                         sample_weight  = world.tf_sample_weights * float(world.nSamples),  # sample_weights are poorly handled in TF
                         epochs         = epochs,
-                        callbacks      = monitor,
+                        callbacks      = monitor if tboard is None else [ monitor, tboard ],
                         verbose        = 0 )
     except KeyboardInterrupt:
         monitor.why_stopped = "Aborted"
