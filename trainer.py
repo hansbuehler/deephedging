@@ -119,6 +119,7 @@ def train(  gym,
                                         config=config.visual )
  
     # See https://docs.aws.amazon.com/sagemaker/latest/dg/studio-tensorboard.html
+    tboard = None
     if tboard_log_dir != "":
         tboard        = tf.keras.callbacks.TensorBoard(log_dir=tboard_log_dir, histogram_freq=tboard_freq)
         print("\r\33[2KTensorBoard log directory set to %s" % tboard_log_dir)

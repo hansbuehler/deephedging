@@ -25,7 +25,11 @@ version = [ int(x) for x in tf.__version__.split(".") ]
 version = version[0]*100+version[1]
 _log.verify( version >= 203, "Tensor Flow version 2.3 required. Found %s", tf.__version__)
 
-print("Tensorflow version %s" % tf.__version__)
+NUM_GPU = len(tf.config.list_physical_devices('GPU'))
+NUM_CPU = len(tf.config.list_physical_devices('CPU'))
+
+print("Tensorflow version %s running on %ld CPUs and %ld GPUs" % (tf.__version__, NUM_CPU, NUM_GPU))
+
 
 dh_dtype = tf.float32
 tf.keras.backend.set_floatx(dh_dtype.name)
