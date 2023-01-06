@@ -2,13 +2,16 @@
 ## Reinforcement Learning for Hedging Derviatives under Market Frictions
 ### Beta version. Please report any issues. Please see installation support below.
 
-This archive contains a sample implementation of of the [Deep Hedging framework](http://deep-hedging.com).
+This archive contains a sample implementation of of the [Deep Hedging framework](http://deep-hedging.com). The purpose of the code base is to illustrate the concepts behind Deep Hedging. The code is not optimized for speed. Any production use will require additional safeguards before use.
+
 The notebook directory has a number of examples on how to use it. The framework relies on the pip package [cdxbasics](https://github.com/hansbuehler/cdxbasics).
 
-The Deep Hedging problem for a horizon $T$ hedged over $M$ time steps with $N$ hedging instruments is given as
-<center>
-<img src="pictures/dh_formula.png" />
-</center>
+### Deep Hedging
+
+The Deep Hedging problem for a horizon $T$ hedged over $M$ time steps with $N$ hedging instruments is given as 
+ <center>
+ <img src="pictures/dh_formula.png" />
+ </center>
 where $DH_t:=H_T - H_t$ denotes the vector of returns of the hedging instruments to $T$. In transaction cost are proportional with proportionality factor~$\gamma$.
 The policy $a$ is a neural network which is fed both pre-computed and live features $f_t$ at each time step. The operator $U$ is a <i>monetary utility</i>. Think of it as a risk-adjusted return. A classic example is the entropy, given by
 <center>

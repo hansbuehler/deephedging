@@ -201,12 +201,15 @@ def utility( utility : str, lmbda : float, X : tf.Tensor, y : tf.Tensor = 0. ) -
         # u1'(x) = exp(-lambda x);                u1'(0) = 1       
         # u2(x)  = x - 0.5 lambda x^2;            u2(0)  = 0
         # u2'(x) = 1 - lambda x;                  u2'(0) = 1
-        u1 = (1. - tf.math.exp( - lmbda * gains) ) / lmbda - y            
-        u2 = gains - 0.5 * lmbda * gains * gains - y
-        d1 = tf.math.exp(- lmbda * gains)
-        d2 = 1. - lmbda * gains
-        u  = tf.where( gains > 0., u1, u2 )
-        d  = tf.where( gains > 0., d1, d2 )
+        g1  = tf.maximum(gains,0.)
+        g2  = tf.minimum(gains,0.)
+        eg1 = tf.math.exp( - lmbda * g1)
+        u1  = (1. - eg1 ) / lmbda - y            
+        u2  = g2 - 0.5 * lmbda * g2 * g2 - y
+        d1  = eg1
+        d2  = 1. - lmbda * g2
+        u   = tf.where( gains > 0., u1, u2 )
+        d   = tf.where( gains > 0., d1, d2 )
         
     elif utility == "vicky":
         # Vicky Handerson & Mark Rodgers

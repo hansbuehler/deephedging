@@ -44,6 +44,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         tf.keras.Model.__init__(self, name=name, dtype=dtype )
         seed                       = config.tensorflow("seed", 423423423, help="Set tensor random seed. Leave to None if not desired.")
         self.hard_clip             = config.environment('hard_clip', False, bool, "Use min/max instread of soft clip for limiting actions by their bounds")
+        self.outer_clip            = config.environment('outer_clip', True, bool, "Apply a hard clip 10 times the boundaries")
         hinge_softness             = config.environment('softclip_hinge_softness', 1., float, help="Specifies softness of bounding actions between lbnd_a and ubnd_a")
         self.softclip              = tfp.bijectors.SoftClip( low=0., high=1., hinge_softness=hinge_softness, name='soft_clip' )
         self.utility               = MonetaryUtility( config.objective, name="utility",  dtype=self.dtype ) 
@@ -202,12 +203,22 @@ class VanillaDeepHedgingGym(tf.keras.Model):
                                         tf.debugging.assert_less_equal( lbnd_a, 0., message="Lower bound for actions must not be positive" ) ] ):
             
             if self.hard_clip:
+                # hard clip
                 # this is recommended for debugging only.
                 # soft clipping should lead to smoother gradients
                 actions = tf.minimum( actions, ubnd_a )
                 actions = tf.maximum( actions, lbnd_a )
                 return actions            
             
+            if self.outer_clip:
+                # to avoid very numerical errors due to very
+                # large pre-clip actions, we cap pre-clip values
+                # hard at 10 times the bounds.
+                # This can happen if an action has no effect
+                # on the gains process (e.g. hedge == 0)
+                actions = tf.minimum( actions, ubnd_a*10. )
+                actions = tf.maximum( actions, lbnd_a*10. )
+
             dbnd = ubnd_a - lbnd_a
             rel  = ( actions - lbnd_a ) / dbnd
             rel  = self.softclip( rel )
