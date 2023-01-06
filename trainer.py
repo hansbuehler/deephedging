@@ -138,7 +138,7 @@ def train(  gym,
                         batch_size     = batch_size,
                         sample_weight  = world.tf_sample_weights * float(world.nSamples),  # sample_weights are poorly handled in TF
                         epochs         = epochs,
-                        callbacks      = monitor if tboard_log_dir != "" else [ monitor, tboard ],
+                        callbacks      = monitor if tboard is None else [ monitor, tboard ],
                         verbose        = 0 )
     except KeyboardInterrupt:
         monitor.why_stopped = "Aborted"
