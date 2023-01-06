@@ -390,15 +390,6 @@ Here is a stub which you may want to put ahead of any notebook you use (*)
         import tensorflow_probability as tfp # ensure this does not fail
         print("TF version %s. Num GPUs Available: %ld" % (tf.__version__, len(tf.config.list_physical_devices('GPU')) ))
         
-### GPU
-
-In order to run on GPU you must have installed the correct CUDA and cuDNN drivers, see [here](https://www.tensorflow.org/install/source#gpu).
-Once you have identified the correct drivers, use
-
-        conda install -c conda-forge cudatoolkit=11.2 cudnn=8.1
-        
-Run the code above (*) to check whether it picked up your GPU. Make sure you have one on the instance you are working on.
-<i>Note that Deep Hedging does not benefit much from GPU use.</i>
 
 ### AWS SageMaker
 
@@ -424,6 +415,15 @@ A simple method is to add the following in a cell ahead of the remaining code, e
         sys.path.append(p)
         print("Added python path %s" % p)
 
+### GPU
+
+In order to run on GPU you must have installed the correct CUDA and cuDNN drivers, see [here](https://www.tensorflow.org/install/source#gpu).
+Once you have identified the correct drivers, use
+
+        conda install -c conda-forge cudatoolkit=11.2 cudnn=8.1
+        
+Run the code above (*) to check whether it picked up your GPU. Make sure you have one on the instance you are working on.
+<i>Note that Deep Hedging does not benefit much from GPU use.</i>
 
 
 
