@@ -382,7 +382,7 @@ Deep Hedging uses tensorflow-probability which does <i>not</i> provide a robust 
 
 In your local environment:
         
-        pip install cdxbasics "tensorflow>=2.7" "tensorflow-gpu>=2.7" tensorflow_probability==0.14
+        pip install cdxbasics "tensorflow>=2.6" "tensorflow-gpu>=2.6" tensorflow_probability==0.14
         
 Here is a stub which you may want to put ahead of any notebook you use (*)
                 
@@ -402,13 +402,13 @@ Run the code above (*) to check whether it picked up your GPU. Make sure you hav
 
 ### AWS SageMaker
 
-At the time of writing AWS SageMaker does not support TF 2.7. Moreover, it does not support GPUs for TF above 2.3.
-For using 2.6 without GPUs which is faster than 2.3 with GPUs, create a new instance and select the <tt>conda_tensorflow2_p36</tt> enviroment.
+_Updated (Jan 1 2022):_ AWS SageMaker now supports tensorflow 2.7, both with and without GPU.
+Create a new instance and select the <tt>conda_tensorflow2_p38</tt> enviroment.
 
 In a terminal type
         
         bash
-        conda activate tensorflow2_p36
+        conda activate tensorflow2_p38
         pip install cdxbasics "tensorflow>=2.6" "tensorflow-gpu>=2.6" tensorflow_probability==0.14 
                 
 If you have cloned the [Deep Hedging git directory](https://github.com/hansbuehler/deephedging) via SageMaker, then the <tt>deephedging</tt> directory is <i>not</i> in your include path, even if the directory shows up in your jupyter hub file list. You will need to add the path of your cloned git directory to python import. 
