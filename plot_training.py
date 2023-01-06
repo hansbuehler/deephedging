@@ -428,7 +428,7 @@ class NotebookMonitor(tf.keras.callbacks.Callback):
         self.losses_err.full.append( err(self.P,self.full_result.loss) )
         self.losses_err.val.append(  err(self.val_P,self.val_result.loss) )
         
-        if self.losses.full[-1] < self.best_loss :
+        if self.losses.full[-1] < self.best_loss:
             self.best_loss         = self.losses.full[-1]
             self.best_loss_err     = self.best_loss_err
             self.best_weights      = self.gym.get_weights()
@@ -544,7 +544,8 @@ class NotebookMonitor(tf.keras.callbacks.Callback):
         val_loss_err      = self.losses_err.val[-1]
         batch_loss        = self.losses.batch[-1]
         total_time_passed = time.time() - self.time0 
-        time_left         = total_time_passed / float(self.epoch+1) * float(self.epochs-self.epoch)
+        time_per_epoch    = total_time_passed / float(self.epoch+1)
+        time_left         = time_per_epoch * float(self.epochs-self.epoch)
         
         str_intro = "Training %ld/%ld epochs; %ld samples; %ld validation samples batch size %ld" % ( self.epoch+1, self.epochs, self.world.nSamples, self.val_world.nSamples, self.batch_size)
         str_perf  = "initial loss %g (%g), full %g (%g), best %g (%g), batch %g, val %g (%g). Best epoch %ld" % ( \
@@ -554,7 +555,7 @@ class NotebookMonitor(tf.keras.callbacks.Callback):
                                         batch_loss, \
                                         val_loss_mean, val_loss_err, \
                                         self.best_epoch )
-        str_time  = "time elapsed %s; estimated time remaining %s" % ( fmt_seconds(total_time_passed), fmt_seconds(time_left) )        
+        str_time  = "time elapsed %s; time per epoch %s; estimated time remaining %s" % ( fmt_seconds(total_time_passed), fmt_seconds(time_per_epoch), fmt_seconds(time_left) )        
         str_time  = str_time if self.time_out is None else str_time + ("; time out %ld" % fmt_seconds(self.time_out))
         print("\r%s | %s | %s                         " % ( str_intro, str_perf, str_time ), end='')
               

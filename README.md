@@ -2,7 +2,8 @@
 ## Reinforcement Learning for Hedging Derviatives under Market Frictions
 ### Beta version. Please report any issues. Please see installation support below.
 
-This archive contains a sample implementation of of the [Deep Hedging framework](http://deep-hedging.com).
+This archive contains a sample implementation of of the [Deep Hedging framework](http://deep-hedging.com). The purpose of the code base is to illustrate the concepts behind Deep Hedging. The code is not optimized for speed. Any production use will require additional safeguards before use.
+
 The notebook directory has a number of examples on how to use it. The framework relies on the pip package [cdxbasics](https://github.com/hansbuehler/cdxbasics).
 
 The Deep Hedging problem for a horizon $T$ hedged over $M$ time steps with $N$ hedging instruments is finding an optimal action function $a$ 
@@ -388,7 +389,7 @@ Deep Hedging uses tensorflow-probability which does <i>not</i> provide a robust 
 
 In your local environment:
         
-        pip install cdxbasics "tensorflow>=2.7" "tensorflow-gpu>=2.7" tensorflow_probability==0.14
+        pip install cdxbasics "tensorflow>=2.6" "tensorflow-gpu>=2.6" tensorflow_probability==0.14
         
 Here is a stub which you may want to put ahead of any notebook you use (*)
                 
@@ -396,15 +397,6 @@ Here is a stub which you may want to put ahead of any notebook you use (*)
         import tensorflow_probability as tfp # ensure this does not fail
         print("TF version %s. Num GPUs Available: %ld" % (tf.__version__, len(tf.config.list_physical_devices('GPU')) ))
         
-### GPU
-
-In order to run on GPU you must have installed the correct CUDA and cuDNN drivers, see [here](https://www.tensorflow.org/install/source#gpu).
-Once you have identified the correct drivers, use
-
-        conda install -c conda-forge cudatoolkit=11.2 cudnn=8.1
-        
-Run the code above (*) to check whether it picked up your GPU. Make sure you have one on the instance you are working on.
-<i>Note that Deep Hedging does not benefit much from GPU use.</i>
 
 ### AWS SageMaker
 
@@ -414,7 +406,7 @@ For using 2.6 without GPUs - which is faster than 2.3 with GPUs -, create a new 
 In a terminal type
         
         bash
-        conda activate tensorflow2_p36
+        conda activate tensorflow2_p38
         pip install cdxbasics "tensorflow>=2.6" "tensorflow-gpu>=2.6" tensorflow_probability==0.14 
                 
 If you have cloned the [Deep Hedging git directory](https://github.com/hansbuehler/deephedging) via SageMaker, then the <tt>deephedging</tt> directory is <i>not</i> in your include path, even if the directory shows up in your jupyter hub file list. You will need to add the path of your cloned git directory to python import. 
@@ -430,6 +422,15 @@ A simple method is to add the following in a cell ahead of the remaining code, e
         sys.path.append(p)
         print("Added python path %s" % p)
 
+### GPU
+
+In order to run on GPU you must have installed the correct CUDA and cuDNN drivers, see [here](https://www.tensorflow.org/install/source#gpu).
+Once you have identified the correct drivers, use
+
+        conda install -c conda-forge cudatoolkit=11.2 cudnn=8.1
+        
+Run the code above (*) to check whether it picked up your GPU. Make sure you have one on the instance you are working on.
+<i>Note that Deep Hedging does not benefit much from GPU use.</i>
 
 
 
