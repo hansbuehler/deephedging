@@ -406,9 +406,10 @@ In order to run Deep Hedging, launch a decent AWS SageMaker instance such as <tt
         
         bash
         conda activate tensorflow2_p38
+        python -m pip install --upgrade pip
         pip install cdxbasics tensorflow_probability==0.14  
 
-This should give you Tensorflow 2.7 with GPU support if your selected instances indeed as GPUs. Note that GPUs do not seem to bring benefits with the current code base.
+This should give you Tensorflow 2.7 with GPU support if your selected instances indeed as GPUs. Note that GPUs do not seem to bring benefits with the current code base. The reason we are using <tt>pip</tt> here an not <tt>conda</tt> is that <tt>conda_tensorflow2_p38</tt is inconsistent, so using <tt>conda</tt> is pretty unreliable and very slow.
 
 If you have cloned the [Deep Hedging git directory](https://github.com/hansbuehler/deephedging) via SageMaker, then the <tt>deephedging</tt> directory is <i>not</i> in your include path, even if the directory shows up in your jupyter hub file list. That is why I've added some magic code on top of the various noteooks:
 
