@@ -237,10 +237,10 @@ The graphs show:
     
     * (2a', 2b', 2c') are the same graphs but for the validation set 
     
-* (4) visualizes actions:
+* (3) visualizes actions:
     
-    * (4a) shows  actions per time step: blue the spot, and orange the option.
-    * (4b) shows the aggregated action as deltas accross time steps. Note that the concept of "delta" only makes sense if the instrument is actually the same per time step, e.g. spot of an stock price. For floating options this is not a particularly meaningful concept.
+    * (3a) shows  actions per time step: blue the spot, and orange the option.
+    * (3b) shows the aggregated action as deltas accross time steps. Note that the concept of "delta" only makes sense if the instrument is actually the same per time step, e.g. spot of an stock price. For floating options this is not a particularly meaningful concept.
         
     
 
