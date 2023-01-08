@@ -1,29 +1,35 @@
 # Deep Hedging
 ## Reinforcement Learning for Hedging Derviatives under Market Frictions
 
-Latest major updates:
-* **Enabled caching** (Jan 8th, 2023): by default, the code now caches progress every 10 epochs. Training will be picked up at the last caching point when the same code is re-run. If training completed, running the same code again will not trigger new training; you can set `config.train.caching.mode = 'update'`.
-
-### Beta version. Please report any issues. Please see installation support below.
-
 This archive contains a sample implementation of of the [Deep Hedging framework](http://deep-hedging.com). The purpose of the code base is to illustrate the concepts behind Deep Hedging. The code is not optimized for speed. Any production use will require additional safeguards before use.
 
-The notebook directory has a number of examples on how to use it. The framework relies on the pip package [cdxbasics](https://github.com/hansbuehler/cdxbasics).
+The notebook directory has a number of examples on how to use it. 
+
+### Latest major updates:
+* **Enabled caching** (Jan 8th, 2023): by default, the code now caches progress every 10 epochs. Training will be picked up at the last caching point when the same code is re-run. If training completed, running the same code again will not trigger new training; you can set `config.train.caching.mode = 'update'`.
+
+* **Recurrent Agents** (Jan 8th, 2023): the trading agent can now pass on a state from one step to another, allowing it full recurrence. Enable it with `config.gym.agent.recurrence =  r`, where the `r` represent the number of real numbers the agent may pass from one step
+to the next.
+
+_Beta version. Please report any issues. Please see installation support below._
+
+### Deep Hedging
+
 
 The Deep Hedging problem for a horizon $T$ hedged over $M$ time steps with $N$ hedging instruments is finding an optimal *action* function $a$ as a function of feature states $s_0,\ldots,s_{T-1}$ which solves
 
 $$
  \sup_a:\ \mathrm{E}\left[\ 
-    Z_T + \sum_{t=0}^{T-1} a(s_t) DH_t^{(t)} + \gamma_t  | a(s_t) |
+    Z_T + \sum_{t=0}^{T-1} a(s_t) DH_t + \gamma_t  | a(s_t) |
  \ \right] \ .
 $$
 
 Here
 * $s_t$ is the *state* of the market; in other words it is a vector of $t$-observable variables which are fed as parameters into our action network $a$.
-* $DH^{(t)}_t:=H_{T'}^{(t)} - H_t^{(t)}$ denotes the vector of returns of the $M$ hedging instruments $H^{(t)}$ available at $t$ from $t$ to our maximum expiry $T'>=T$. The expiry time $T'$ is set such that all hedging instruments are expired by that time.
+* $DH_t:=H_{T'} - H_t$ denotes the vector of returns of the $M$ hedging instruments $H$ available at $t$ from $t$ to our maximum expiry $T'>=T$. The expiry time $T'$ is set such that all hedging instruments are expired by that time.
 
-    * If the $i$th hedging instrument is spot $S$, then  $DH^{(i:t)}_t = S_T - S_t$ is simply the return of the equity from $t$ to $T$.
-    * If the $i$th instrument is an option $X$ with expiry $\tau$ then in the current implementation uses $DH^{(i:t)}_t = X_\tau - V_t$ where $V$ is the market price at $t$ and where $X_\tau$ is the option's payoff at maturity. The maturity $T'$ is the maximum off all maturities of all hedging instruments.
+    * If the $i$<b></b>th hedging instrument is spot $S$, then  $DH^{i}_t = S_T - S_t$ is simply the return of the equity from $t$ to $T$.
+    * If the $i$<b></b>th instrument is an option $X$ with expiry $\tau$ then in the current implementation uses $DH^{i}_t = X_\tau - V_t$ where $V$ is the market price at $t$ and where $X_\tau$ is the option's payoff at maturity. The maturity $T'$ is the maximum off all maturities of all hedging instruments.
 
 * $\gamma_t$ represents the vector of proportional transaction cost.
 * $U$ is a _monetary utility_ which can be thought of as a risk-adjusted return.
@@ -35,10 +41,27 @@ To test the code run `notebooks/trainer.ipynb`.
 
 In order to run the Deep Hedging, we require:
 
-* __Market data__: this is referred to as a `world`. Among other members, world has a `tf_data` member which
-        represents the feature sets across training samples, and `tf_sample_weights` which is the probability distribution
-        across samples. The sample code provides a simplistic default world implementation: a simple Black & Scholes world, and a made up stochastic volatility world. The notebook `notebooks/simpleWorld_Spot_ATM.ipynb` provides some visualization.        
+* __Market data__: this is referred to as a `world`. The sample code provides a simplistic default implementation: a simple Black & Scholes world, and a made up stochastic volatility world. The notebook `notebooks/simpleWorld_Spot_ATM.ipynb` provides some visualization.        
         For any real application it is recommend to rely on fully machine learned market simulators, c.f. https://arxiv.org/abs/2112.06823.
+
+    A `world` class contains a number of members. The most important are
+
+    * `tf_data` member which contains
+
+        * `tf_data['features']['market']`: core market data for the simulator. These are _not_ passed as features $s_t$ to the action model, because some of them such as $DH_t$ are forward looking.
+
+        * `tf_data['features']['per_step']`: features per time step $t$, e.g. current equity spot, prices for out options, time left, implied vol, values of the boundaries for actions.
+        * `tf_data['features']['per_path']`: features per sample path. These are currently none as we are training for fixed instruments, but this can be extended accordingly.
+
+        Note that the actual features $s_t$ available for training are a combination of the above and live features. To obtain a list of supported features, call
+
+        * `VanillaDeepHedgingGym.available_features_per_step` for the features available per time step, i.e. $s_t$ in above formulation. Call `agent_features_used` to assess which features were actually used by the agent.
+
+        * `VanillaDeepHedgingGym.available_features_per_path` for the features available per sample path step. This is a subset of $s_0$. This is used for the OCE monetary utilities. Call `utilitiy_features_used` to assess which features were actually used.
+
+    * `tf_sample_weights` the probability distribution across samples. If you compute any summary statisics, do not forget to refer to this distribution. As an example `base.py`
+    contains a number of basic stats functions such as `mean` and `std` which do not assume a uniform distribution.
+    
 
 * __Gym__: the main Keras custom model. It is a Monte Carlo loop arund the actual underlying `agent.py` networks which represents $a$ in the formula above. Given a `world` object we may compute the loss given the prevailing action network as `gym(world.tf_data)`.
 
@@ -51,7 +74,7 @@ Here are `world.tf_data` entries used by `gym.call()`:
     The payoff $Z_T$ at maturity. Since this is at the time of the expiry of the product, this can be computed off the path until $T$. No derivative pricing model is required.
 
 * `data['martket']['hedges']` `(:,M,N)`
-    Returns of the hedges, i.e. the vector $DH_t^{(t)}:=H_{T'}^{(t)} - H_t^{(t)}$ for each time step. That means $H_t^{(t)}$ is the market price at time $t$, and $H_{T'}^{(t)}$ is payoff of the instrument at its expiry. In our examples we expand the timeline such that the expiry of all products is part of the market simulator. 
+    Returns of the hedges, i.e. the vector $DH_t:=H_{T'} - H_t$ for each time step. That means $H_t$ is the market price at time $t$, and $H_{T'}$ is payoff of the instrument at its expiry. In our examples we expand the timeline such that the expiry of all products is part of the market simulator. 
 
 
     For example, if $S_t$ is spot, $w_t^{(i)}$ is the option's implied volatility at $t$,  $x$ its time-to-maturity, and $k$ a relative strike, then
