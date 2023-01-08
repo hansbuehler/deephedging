@@ -452,19 +452,22 @@ Tools
 
 Deep Hedging was developed using Tensorflow 2.7 on Python 37. The latest version seems to run with TF 2.6 on Python 3.6 as well. Check version compatibility between TensorFlow and Python [here](https://www.tensorflow.org/install/source#cpu). The main difference is that TF before 2.7 expects tensors of dimension `(nBatch)` to be passed as `(nBatch,1)`.
 
-Deep Hedging uses `tensorflow-probability` which does _not_ provide a robust dependency to the installed tensorflow version. If you receive an error you will need to make sure manually that it matches to your tensorflow version [here](https://github.com/tensorflow/probability/releases).
+Deep Hedging uses `tensorflow-probability` which does _not_ provide a robust dependency to the installed TensorFlow version. If you receive an error you will need to make sure manually that it matches to your tensorflow version [here](https://github.com/tensorflow/probability/releases).
 
-In your local environment use the following (latest version requirements can be found in `requirements.txt`):
+In your local conda environment use the following (latest version requirements can be found in `requirements.txt`):
         
         conda install "cdxbasics>=0.2.9" -c hansbuehler
-        conda install "tensorflow>=2.7" "tensorflow_probability==0.14" 
+        conda install -c conda-forge tensorflow
+        conda install -c conda-forge tensorflow-probability
 
-Check the following works:
+At the time of writing, this gives you TensowFlow 2.10 and the correct `tensorflow-probability` version 0.14.
+Then check that the following works:
                 
         import tensorflow as tf
         import tensorflow_probability as tfp # ensure this does not fail
-        print("TF version %s. Num GPUs Available: %ld" % (tf.__version__, len(tf.config.list_physical_devices('GPU')) ))
+        print("TF version %s. Num GPUs Available: %ld" % (tf.__version__, len(tf.config.list_physical_devices('GPU')) ))  # should give you the tenosr flow version and whether it found any GPUs
         
+See also below for comments on GPU use.
 
 ### AWS SageMaker
 
