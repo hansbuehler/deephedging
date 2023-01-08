@@ -274,10 +274,10 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         Create a dictionary which allows reconstructing the current model.
         """
         assert not self.agent is None, "build() not called yet"
-        opt_config = tf.keras.optimizers.serialize( self.optimizer )
+        opt_config = tf.keras.optimizers.serialize( self.optimizer ) if not self.optimizer is None else None
         return dict( gym_uid       = self.unique_id,
                      gym_weights   = self.get_weights(),
-                     opt_uid       = uniqueHash( opt_config ),
+                     opt_uid       = uniqueHash( opt_config ) if not self_opt_config is None else "",
                      opt_config    = opt_config,
                      opt_weights   = self.optimizer.get_weights()
                    )
@@ -287,7 +287,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         Restore 'self' from cache.
         Note that we have to call() this object before being able to use this function
         
-        TODO remvoe world
+        TODO remove world
         
         This function returns False if the cached weights do not match the current architecture.
         """        
@@ -298,8 +298,8 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         opt_config  = cache['opt_config']
         opt_weights = cache['opt_weights']
         
-        self_opt_config = tf.keras.optimizers.serialize( self.optimizer )
-        self_opt_uid    = uniqueHash( self_opt_config )
+        self_opt_config = tf.keras.optimizers.serialize( self.optimizer ) if not self.optimizer is None else None
+        self_opt_uid    = uniqueHash( self_opt_config ) if not self_opt_config is None else ""
         
         # check that the objects correspond to the correct configs
         if gym_uid != self.unique_id:
@@ -312,6 +312,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
 
         # load weights
         # Note that we will continue with the restored weights for the gym even if we fail to restore the optimizer
+        # This is likely the desired behaviour.
         try:
             self.set_weights( gym_weights )
         except ValueError as v:
@@ -319,6 +320,8 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             return False
         return True
     
+        if self.optimizer is None:
+            return True    
         try:
             self.optimizer.set_weights( opt_weights )
         except ValueError as v:
