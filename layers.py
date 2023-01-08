@@ -32,12 +32,20 @@ class VariableLayer(tf.keras.layers.Layer):
         tf.keras.layers.Layer.__init__(self, name=name, dtype=dtype )        
         if not isinstance(init, (float, np.ndarray, tf.Tensor)):
             _log.verify( isinstance(init, (tuple, tf.TensorShape)), "'init' must of type float, np.array, tf.Tensor, tuple, or tf.TensorShape. Found type %s", type(init))
-            init              = tf_glorot_value(init)
-        self.variable     = tf.Variable( init, trainable=trainable, name=name+"_variable" if not name is None else None, dtype=self.dtype )
-        
+            init                = tf_glorot_value(init)
+        self.variable           = tf.Variable( init, trainable=trainable, name=name+"_variable" if not name is None else None, dtype=self.dtype )
+        self.available_features = None
+
+    def build( self, shapes : dict ): # NOQA
+        self.available_features = sorted( [ str(k) for k in shapes ] )
+
     def call( self, dummy_data : dict = None, training : bool = False ) -> tf.Tensor:
         """ Return variable value """
         return self.variable
+    
+    @property
+    def features(self) -> list: # NOQA
+        return []
 
 class DenseLayer(tf.keras.layers.Layer):
     """
@@ -75,6 +83,7 @@ class DenseLayer(tf.keras.layers.Layer):
         self.nFeatures         = None
         self.model             = None        
         self.initial_value     = None
+        self.available_features= None
         if not initial_value is None:
             if isinstance(initial_value, np.ndarray):
                 _log.verify( initial_value.shape == (nOutput,), "Internal error: initial value shape %s does not match 'nOutput' of %ld", initial_value.shape, nOutput )
@@ -101,6 +110,8 @@ class DenseLayer(tf.keras.layers.Layer):
                 fs = shapes[feature]
                 assert len(fs) == 2, ("Internal error: all features should have been flattend. Found feature '%s' with shape %s" % (feature, fs))
                 self.nFeatures += fs[1]
+                
+        self.available_features = sorted( [ str(k) for k in shapes ] )
     
         # build model
         # simple feedforward model as an example

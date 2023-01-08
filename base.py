@@ -182,7 +182,7 @@ def tf_make_dim( tensor : tf.Tensor, dim : int ) -> tf.Tensor:
     return tensor
 
 # -------------------------------------------------
-# Basic arithmetics
+# Basic arithmetics for non-uniform distributions
 # -------------------------------------------------
 
 def mean( P : np.ndarray, w : np.ndarray, axis : int = None ) -> np.ndarray: 
@@ -339,6 +339,21 @@ def fmt_seconds( seconds : int ) -> str:
         return "%ld:%02ld" % (seconds//60, seconds%60)
     return "%ld:%02ld:%02ld" % (seconds//60//60, (seconds//60)%60, seconds%60)    
 
+def fmt_list( lst, none="-" ) -> str:
+    """ Returns a nicely formatted list of string with commas """
+    if lst is None:
+        return none
+    if len(lst) == 0:
+        return none
+    if len(lst) == 1:
+        return str(lst[0])
+    if len(lst) == 2:
+        return str(lst[0]) + " and " + str(lst[1])
+    s = ""
+    for k in lst[:-1]:
+        s += str(k) + ", "
+    return s[:-2] + " and " + str(lst[-1])
+    
 def fmt_big_number( number : int ) -> str:
     """ Return a nicely formatted big number string """
     if number >= 10**10:

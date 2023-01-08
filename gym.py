@@ -61,14 +61,11 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         
         if not seed is None:
             tf.random.set_seed( seed )
-        
-    @property
-    def num_trainable_weights(self) -> int:
-        """ Returns the number of weights. The object must have been called once """
-        assert not self.agent is None, "build() must be called first"
-        weights = self.trainable_weights
-        return np.sum( [ np.prod( w.get_shape() ) for w in weights ] )
-    
+
+    # -------------------
+    # keras model pattern
+    # -------------------
+            
     def build(self, shapes : dict ):
         """ Build the model. See call(). """
         assert self.agent is None, "build() called twice?"
@@ -168,7 +165,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             # action
             action, state  =  self.agent( live_features, training=training )
             _log.verify( action.shape.as_list() in [ [nBatch, nInst], [nInst] ], "Error: action: expected shape %s, found %s", [nBatch, nInst], action.shape.as_list() )
-            #DEBUG action         =  tf.debugging.check_numerics(action, "Numerical error computing action in %s" % __file__ )
+            action         =  action if len(action.shape) == 2 else action[tf.newaxis,:]
             action         =  self._clip_actions(action, lbnd_a[:,j,:], ubnd_a[:,j,:] )
             delta          =  delta + action
             
@@ -212,6 +209,10 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             deltas   = tf.concat( deltas, axis=1 )                # [?,nSteps,nInst]
         )
         
+    # -------------------
+    # internal
+    # -------------------
+
     def _clip_actions( self, actions, lbnd_a, ubnd_a ):
         """ Clip the action within lbnd_a, ubnd_a """
         
@@ -256,7 +257,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         features             = data.get('features',{})
 
         features_per_step_i  = features.get('per_step', {})
-        features_per_step    =   {}
+        features_per_step    = {}
         for f in features_per_step_i:
             feature = features_per_step_i[f]
             assert isinstance(feature, tf.Tensor), "Internal error: type %s found" % feature._class__.__name__
@@ -264,11 +265,49 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             _log.verify( feature.shape[1] == nSteps, "data['features']['per_step']['%s']: second dimnsion must match number of steps, %ld, found shape %s", f, nSteps, feature.shape.as_list() )
             features_per_step[f] = tf_make_dim( feature, 3 )
 
-        features_per_path_i    = features.get('per_sample', {})
+        features_per_path_i    = features.get('per_path', {})
         features_per_path      = { tf_make_dim( _, dim=2 ) for _ in features_per_path_i }
-        
         return features_per_step, features_per_path
 
+    # -------------------
+    # syntatic sugar
+    # -------------------
+
+    @property
+    def num_trainable_weights(self) -> int:
+        """ Returns the number of weights. The model must have been call()ed once """
+        assert not self.agent is None, "build() must be called first"
+        weights = self.trainable_weights
+        return np.sum( [ np.prod( w.get_shape() ) for w in weights ] )
+    
+    @property
+    def available_features_per_step(self) -> list:
+        """ Returns the list of features available per time step (for the agent). The model must have been call()ed once """
+        _log.verify( not self.agent is None, "Cannot call this function before model was built")
+        return self.agent.available_features
+    
+    @property
+    def available_features_per_path(self) -> list:
+        """ Returns the list of features available per time step (for montetary utilities). The model must have been call()ed once """
+        _log.verify( not self.utility is None, "Cannot call this function before model was built")
+        return self.utility.available_features
+
+    @property
+    def agent_features_used(self) -> list:
+        """ Returns the list of features used by the agent. The model must have been call()ed once """
+        _log.verify( not self.agent is None, "Cannot call this function before model was built")
+        return self.agent.public_features
+    
+    @property
+    def utility_features_used(self) -> list:
+        """ Returns the list of features available per time step (for the agent). The model must have been call()ed once """
+        _log.verify( not self.agent is None, "Cannot call this function before model was built")
+        return self.utility.features
+    
+    # -------------------
+    # caching
+    # -------------------
+    
     def create_cache( self ):
         """
         Create a dictionary which allows reconstructing the current model.
@@ -277,7 +316,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         opt_config = tf.keras.optimizers.serialize( self.optimizer ) if not self.optimizer is None else None
         return dict( gym_uid       = self.unique_id,
                      gym_weights   = self.get_weights(),
-                     opt_uid       = uniqueHash( opt_config ) if not self_opt_config is None else "",
+                     opt_uid       = uniqueHash( opt_config ) if not opt_config is None else "",
                      opt_config    = opt_config,
                      opt_weights   = self.optimizer.get_weights()
                    )

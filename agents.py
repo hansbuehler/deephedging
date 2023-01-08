@@ -17,12 +17,10 @@ _log = Logger(__file__)
 class SimpleDenseAgent(tf.keras.layers.Layer):
     """
     Simple Action Model for Deep Hedging
-    The basic functionality is a generic pattern, e.g.
+    V2.0 also supports simple recurrence in the form of a new feature, which is returned by the previous agent call.
     
-        - The __init__ function takes a config object which contains all relevant data for the action
-        - build() and call() expect dictionaries
-        - The 'features' attribute has a sorted list of required model features, by name.
-          The action will attempt to extract those features whenever it is called 
+    To initialize an agent, you need to specify its network (with layers.DenseLayer) and its features.
+    The list of available features for a given world in a given gym can be obtained using gym.available_features_per_step()
     """
     
     Default_features_per_step = [ 'price', 'delta', 'time_left' ]
@@ -66,10 +64,6 @@ class SimpleDenseAgent(tf.keras.layers.Layer):
         self.init_state    = VariableLayer( (self.nStates,), name=name+"_initial_state" if not name is None else None, dtype=dtype ) if self.nStates > 0 else None
         config.done() # all config read
         
-    @property
-    def nFeatures(self): # NOQA
-        return self.layer.nFeatures 
-        
     def call( self, all_features : dict, training : bool = False ) -> tuple:
         """
         Compute next action, and recurrent state.
@@ -86,13 +80,35 @@ class SimpleDenseAgent(tf.keras.layers.Layer):
         
         # if the model is recurrent, handle recurrent state
         if not self.State_Feature_Name in all_features:
-            all_features = dict( all_features )
-            all_features[self.State_Feature_Name] = self.init_state(all_features, training=training)
+            # TF expects the leading dimension for any variable to be the number of samples.
+            # Below is a bit of a hack
+            all_features    = dict(all_features)
+            delta           = all_features['delta']   # current spot [None,N]
+            init_state      = self.init_state(all_features, training=training)
+            assert len(delta.shape) == 2, "'delta': expected tensor of dimensionm 2. Found %s" % delta.shape.as_list()
+            assert len(init_state.shape) == 1, "init_state: expected to be a plain vector. Found shape %s" % init_state.shape
+            init_state      = delta[:,0][:,tf.newaxis] * 0. + init_state[tf.newaxis,:] 
+            all_features[self.State_Feature_Name] = init_state
         
         action_state = self.layer(all_features, training=training)
         return action_state[:,:self.nInst], { self.State_Feature_Name : action_state[:,self.nInst:] }
 
-
+    @property
+    def nFeatures(self): # NOQA
+        return self.layer.nFeatures     
+    @property
+    def features(self):
+        """ List of all features used by this agent. This includes the recurrent state, if the model is recurrent """
+        return self.layer.features
+    @property
+    def public_features(self):
+        """ Sorted list of all publicly visible features used by this agent. This excludes the internal recurrent state """
+        return [ k for k in self.layer.features if not k == self.State_Feature_Name ]
+    @property
+    def available_features(self): # NOQA
+        """ List of features available to the agent """
+        return [ k for k in self.layer.available_features if not k == self.State_Feature_Name ]
+    
 # =========================================================================================
 # Factory
 # =========================================================================================
