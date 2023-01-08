@@ -445,7 +445,7 @@ class Plotter(object):
         # comment on timing:
         # in the event of being restored from caching, timing stats at 'cache_epoch_off'
         total_time_passed = time.time() - monitor.time0 
-        time_per_epoch    = total_time_passed / float(monitor.epoch+1-cache_epoch_off)
+        time_per_epoch    = total_time_passed / float(monitor.epoch+1-cache_epoch_off) if monitor.epoch+1-cache_epoch_off > 0 else 0.
         time_left         = time_per_epoch * float(monitor.epochs-monitor.epoch)
         weights           = fmt_big_number( monitor.num_weights )
         
