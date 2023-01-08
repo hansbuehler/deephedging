@@ -12,14 +12,17 @@ import numpy as np
 import time as time
 from cdxbasics.prettydict import PrettyDict as pdct
 from cdxbasics.dynaplot import colors_tableau, figure
-from .base import Logger, npCast, fmt_seconds, mean, err, tf, mean_bins, mean_cum_bins, perct_exp
+from cdxbasics.util import uniqueHash
+from cdxbasics.subdir import SubDir, uniqueFileName48, CacheMode
+    
+from .base import Logger, npCast, fmt_seconds, mean, err, tf, mean_bins, mean_cum_bins, perct_exp, Int, Float, fmt_big_number
 
 _log = Logger(__file__)
 
 colors = colors_tableau
 
 # -------------------------------------------------------
-# By epoch
+# By epoch4b2a0d007d32efb21b4c813015b17235 
 # -------------------------------------------------------
 
 class Plot_Loss_By_Epoch(object): # NOQA
@@ -336,6 +339,131 @@ class Plot_Activity_By_Step(object): # NOQA
             self.ax.legend()
 
 # -------------------------------------------------------
+# Monitor plotter
+# -------------------------------------------------------
+
+class Plotter(object):
+    """
+    Contains plotting logic using 'dynaplot'.
+    Add new plots here
+    """
+    def __init__(self):
+        self.fig = None
+    
+    def __del__(self):
+        self.close()
+        
+    def close(self):
+        """ Close the object """
+        if not self.fig is None:
+            self.fig.close()
+            self.fig = None
+
+    def __call__(self, monitor, world, val_world, last_cached_epoch, cache_epoch_off ):
+        """ 
+        Update our plots
+        Create figures and subplots if not done so before
+        """
+        assert monitor.epoch >= 0, "Do not call me before the first epoch"
+        
+        if self.fig is None:
+            print("\r")
+            # create figure
+            self.fig                        = figure(row_size=monitor.fig_row_size, col_size=monitor.fig_col_size, col_nums=monitor.fig_col_nums, tight=True )
+            
+            # by epoch
+            self.plot_loss_by_epoch         = Plot_Loss_By_Epoch(    fig=self.fig, title="Losses (recent)", epochs=monitor.epochs, err_dev=monitor.err_dev, lookback_window=monitor.lookback_window, show_epochs=monitor.show_epochs )
+            self.plot_loss_by_epoch_all     = Plot_Loss_By_Epoch(    fig=self.fig, title="Losses (all)", epochs=monitor.epochs, err_dev=monitor.err_dev, lookback_window=monitor.epochs, show_epochs=monitor.epochs )
+            self.plot_gains_utility_by_epoch = Plot_Utility_By_Epoch( fig=self.fig, name="Gains", err_dev=monitor.err_dev, epochs=monitor.epochs, lookback_window=monitor.lookback_window, show_epochs=monitor.show_epochs )
+            self.plot_payoff_utility_by_epoch = Plot_Utility_By_Epoch( fig=self.fig, name="Payoff", err_dev=monitor.err_dev, epochs=monitor.epochs, lookback_window=monitor.lookback_window, show_epochs=monitor.show_epochs )
+
+            self.fig.next_row()
+            
+            # by performance - training
+            # a key aspect of using utility based pricing is that when we solve \sup_a U( Z + a dH ), we will get a non-zere value u* = U( Z + a* dH ) at the optimal point a*.
+            # This is the cash value of the position Z+a*dH, and it must be compared to the unhedged utility u0 = U(Z).
+            
+            self.plot_returns_by_spot_adj_ret      = Plot_Returns_By_Spot_Ret(      fig=self.fig, ret_name = "Returns less Utility", set_name="training set", bins=monitor.bins )
+            self.plot_returns_by_spot_ret          = Plot_Returns_By_Spot_Ret(      fig=self.fig, ret_name = "Raw Returns", set_name="training set", bins=monitor.bins )
+            self.plot_utility_by_cumpercentile     = Plot_Utility_By_CumPercentile( fig=self.fig, set_name = "training set", bins=monitor.bins )
+            
+            # by performance - validation
+            self.val_plot_returns_by_spot_adj_ret  = Plot_Returns_By_Spot_Ret(      fig=self.fig, ret_name = "Returns less Utility", set_name="validation set", bins=monitor.bins )
+            self.val_plot_returns_by_spot_ret      = Plot_Returns_By_Spot_Ret(      fig=self.fig, ret_name = "Raw Returns", set_name="validation set", bins=monitor.bins )
+            self.val_plot_utility_by_cumpercentile = Plot_Utility_By_CumPercentile( fig=self.fig, set_name = "validation set", bins=monitor.bins )
+
+            self.fig.next_row()
+
+            # activity by step
+            self.plot_actions_by_step          = Plot_Activity_By_Step(    fig=self.fig, activity_name="Actions\n(training set)", pcnt_lo=monitor.pcnt_lo, pcnt_hi=monitor.pcnt_hi, inst_names=world.inst_names )
+            self.plot_deltas_by_step           = Plot_Activity_By_Step(    fig=self.fig, activity_name="Delta\n(training set)", pcnt_lo=monitor.pcnt_lo, pcnt_hi=monitor.pcnt_hi, inst_names=world.inst_names )
+
+            self.fig.render()
+        
+        # update live graphics
+        # --------------------
+        self.fig.suptitle("Learning to Trade, epoch %ld / %ld" % (monitor.epoch+1,monitor.epochs), fontsize=20)
+        
+        # by epoch
+        self.plot_loss_by_epoch.update( epoch=monitor.epoch, losses=monitor.losses, loss_errs=monitor.losses_err, best_epoch=monitor.best_epoch, best_loss=monitor.best_loss )
+        self.plot_loss_by_epoch_all.update( epoch=monitor.epoch, losses=monitor.losses, loss_errs=monitor.losses_err, best_epoch=monitor.best_epoch, best_loss=monitor.best_loss )
+        self.plot_gains_utility_by_epoch.update( epoch=monitor.epoch, best_epoch=monitor.best_epoch,  full_util=monitor.utilities.full_util, full_util_err=monitor.utilities.full_util_err, val_util=monitor.utilities.val_util)
+        self.plot_payoff_utility_by_epoch.update( epoch=monitor.epoch, best_epoch=monitor.best_epoch,  full_util=monitor.utilities.full_util0, full_util_err=monitor.utilities.full_util0_err, val_util=monitor.utilities.val_util0)
+
+        # by performance - training
+        # Note that subtract the OCE utility from gains (the hedged portfolio) and payoff (the input).
+        # Subtracting the OCE utility means that both are of equivalent utility.
+        adjusted_full_gains  = monitor.full_result.gains - mean(monitor.P, monitor.full_result.utility)
+        adjusted_full_hedge  = (monitor.full_result.gains - monitor.full_result.payoff) - mean(monitor.P, monitor.full_result.utility)
+        adjusted_full_payoff = monitor.full_result.payoff - mean(monitor.P, monitor.full_result.utility0)
+        self.plot_returns_by_spot_adj_ret.update( P=monitor.P, gains=adjusted_full_gains, hedge=adjusted_full_hedge, payoff=adjusted_full_payoff, spot_ret=world.diagnostics.per_path.spot_ret )
+        self.plot_returns_by_spot_ret.update( P=monitor.P, gains=monitor.full_result.gains, hedge=monitor.full_result.gains - monitor.full_result.payoff, payoff=monitor.full_result.payoff, spot_ret=world.diagnostics.per_path.spot_ret )
+        self.plot_utility_by_cumpercentile.update( P=monitor.P, utility=monitor.full_result.utility, utility0=monitor.full_result.utility0 )
+        
+        # by performance - validation
+        adjusted_val_gains  = monitor.val_result.gains - mean(monitor.val_P, monitor.val_result.utility)
+        adjusted_val_hedge  = (monitor.val_result.gains - monitor.val_result.payoff) - mean(monitor.val_P, monitor.val_result.utility)
+        adjusted_val_payoff = monitor.val_result.payoff - mean(monitor.val_P, monitor.val_result.utility0)
+        self.val_plot_returns_by_spot_adj_ret.update( P=monitor.val_P, gains=adjusted_val_gains, hedge=adjusted_val_hedge, payoff=adjusted_val_payoff, spot_ret=val_world.diagnostics.per_path.spot_ret )
+        self.val_plot_returns_by_spot_ret.update( P=monitor.val_P, gains=monitor.val_result.gains, hedge=monitor.val_result.gains - monitor.val_result.payoff, payoff=monitor.val_result.payoff, spot_ret=val_world.diagnostics.per_path.spot_ret )
+        self.val_plot_utility_by_cumpercentile.update( P=monitor.val_P, utility=monitor.val_result.utility, utility0=monitor.val_result.utility0 )
+        
+        # activity by step
+        assert len(monitor.full_result.actions.shape) == 3, "Shape %s" % monitor.full_result.actions.shape
+        self.plot_actions_by_step.update( P=monitor.P, action=monitor.full_result.actions )
+        self.plot_deltas_by_step.update( P=monitor.P, action=monitor.full_result.deltas )
+        self.fig.render()
+
+        # Print
+        # -----        
+        full_loss_mean    = monitor.losses.full[-1]
+        full_loss_err     = monitor.losses_err.full[-1]
+        val_loss_mean     = monitor.losses.val[-1]
+        val_loss_err      = monitor.losses_err.val[-1]
+        batch_loss        = monitor.losses.batch[-1]
+        
+        # comment on timing:
+        # in the event of being restored from caching, timing stats at 'cache_epoch_off'
+        total_time_passed = time.time() - monitor.time0 
+        time_per_epoch    = total_time_passed / float(monitor.epoch+1-cache_epoch_off)
+        time_left         = time_per_epoch * float(monitor.epochs-monitor.epoch)
+        weights           = fmt_big_number( monitor.num_weights )
+        
+        str_cache = "" if last_cached_epoch == -1 else (" Last cached epoch %ld." % last_cached_epoch)
+        str_intro = "Training %ld/%ld epochs; %s weights; %ld samples; %ld validation samples batch size %ld" % ( monitor.epoch+1, monitor.epochs, weights, world.nSamples, val_world.nSamples, monitor.batch_size)
+        str_perf  = "initial loss %g (%g), full %g (%g), best %g (%g), batch %g, val %g (%g). Best epoch %ld.%s" % ( \
+                                        monitor.init_loss, monitor.init_loss_err, \
+                                        full_loss_mean, full_loss_err, \
+                                        monitor.best_loss, monitor.best_loss_err, \
+                                        batch_loss, \
+                                        val_loss_mean, val_loss_err, \
+                                        monitor.best_epoch,\
+                                        str_cache)
+        str_time  = "time elapsed %s; time per epoch %s; estimated time remaining %s" % ( fmt_seconds(total_time_passed), fmt_seconds(time_per_epoch), fmt_seconds(time_left) )        
+        str_time  = str_time if monitor.time_out is None else str_time + ("; time out %ld" % fmt_seconds(monitor.time_out))
+        print("\r%s | %s | %s                         " % ( str_intro, str_perf, str_time ), end='')
+
+# -------------------------------------------------------
 # Monitor
 # -------------------------------------------------------
 
@@ -347,226 +475,232 @@ class NotebookMonitor(tf.keras.callbacks.Callback):
     "Base class" is trainer.NoMonitor
     """
     
-    def __init__(self, gym, world, val_world, result0, epochs, batch_size, time_out, config ):# NOQA
+    def __init__(self, gym, world, val_world, result0, epochs, batch_size, time_out, config_visual, config_caching ):# NOQA
         tf.keras.callbacks.Callback.__init__(self)
-        self.time_refresh     = config("time_refresh", 20, int, help="Time refresh interval for visualizations" )
-        self.epoch_refresh    = config("epoch_refresh", 10, int, help="Epoch fefresh frequency for visualizations" )        
-        self.fig_row_size     = config.fig("row_size", 5, int, "Plot size of a row")
-        self.fig_col_size     = config.fig("col_size", 5, int, "Plot size of a column")
-        self.fig_col_nums     = config.fig("col_nums", 6, int, "Number of columbs")
-        self.err_dev          = config("err_dev", 1., float, help="How many standard errors to add to loss to assess best performance" )   
-        self.lookback_window  = config("lookback_window", 30, int, "Lookback window for determining y min/max")
-        self.show_epochs      = config("show_epochs", 100, int,  "Maximum epochs displayed")
-        self.bins             = config("bins", 200, int, "How many x to plot")
-        self.pcnt_lo          = config("confidence_pcnt_lo", 0.5, float, "Lower percentile for confidence intervals")
-        self.pcnt_hi          = config("confidence_pcnt_hi", 0.5, float, "Upper percentile for confidence intervals")
         
-        self.gym              = gym
-        self.world            = world
-        self.val_world        = val_world
-        self.result0          = result0
-        self.P                = world.sample_weights
-        self.val_P            = val_world.sample_weights
-        self.started          = False
-        self.epochs           = epochs
-        self.time_out         = time_out
-        self.time0            = time.time()
-        self.time_last        = -1
-        self.batch_size       = batch_size if not batch_size is None else 32
-        self.epoch            = -1
-        self.why_stopped      = "Ran all %ld epochs" % epochs
-        self.fig              = None
+        """
+        We store all data in 'self.data' in order to being able
+        to load/save the current state of our training.
+        This allows hot starting a run.
+        """
+                
+        self.gym                   = gym  # do NOT store 'gym' in data as this cannot easily be pickled.
+        self.data                  = pdct()
+        self.data.time_refresh     = config_visual("time_refresh", 20, Int>0, "Time refresh interval for visualizations" )
+        self.data.epoch_refresh    = config_visual("epoch_refresh", 10, Int>0, "Epoch fefresh frequency for visualizations" )        
+        self.data.fig_row_size     = config_visual.fig("row_size", 5, Int>0, "Plot size of a row")
+        self.data.fig_col_size     = config_visual.fig("col_size", 5, Int>0, "Plot size of a column")
+        self.data.fig_col_nums     = config_visual.fig("col_nums", 6, Int>0, "Number of columbs")
+        self.data.err_dev          = config_visual("err_dev", 1., Float>0., "How many standard errors to add to loss to assess best performance" )   
+        self.data.lookback_window  = config_visual("lookback_window", 30, Int>3, "Lookback window for determining y min/max")
+        self.data.show_epochs      = config_visual("show_epochs", 100, Int>3,  "Maximum epochs displayed")
+        self.data.bins             = config_visual("bins", 200, Int>3, "How many x to plot")
+        self.data.pcnt_lo          = config_visual("confidence_pcnt_lo", 0.5, (Float > 0.) & (Float<=1.), "Lower percentile for confidence intervals")
+        self.data.pcnt_hi          = config_visual("confidence_pcnt_hi", 0.5, (Float > 0.) & (Float<=1.), "Upper percentile for confidence intervals")
+        config_visual.done()
+
+        self.world                 = world
+        self.val_world             = val_world
+        self.data.result0          = result0
+        self.data.num_weights      = gym.num_trainable_weights
+        self.data.P                = world.sample_weights
+        self.data.val_P            = val_world.sample_weights
+        self.data.full_result      = None
+        self.data.val_result       = None
+        self.data.epochs           = epochs
+        self.data.time_out         = time_out
+        self.data.time0            = time.time()
+        self.data.time_last        = -1
+        self.data.batch_size       = batch_size if not batch_size is None else 32
+        self.data.epoch            = -1
+        self.data.why_stopped      = "Ran all %ld epochs" % epochs
         
         # track progress
-        self.losses            = pdct()
-        self.losses.init       = []
-        self.losses.full       = []
-        self.losses.batch      = []
-        self.losses.val        = []
-        self.losses_err        = pdct()
-        self.losses_err.full   = []
-        self.losses_err.val    = []
+        self.data.losses            = pdct()
+        self.data.losses.init       = []
+        self.data.losses.full       = []
+        self.data.losses.batch      = []
+        self.data.losses.val        = []
+        self.data.losses_err        = pdct()
+        self.data.losses_err.full   = []
+        self.data.losses_err.val    = []
 
-        self.init_loss         = mean( self.P, result0.loss )
-        self.init_loss_err     = err( self.P, result0.loss )
-        self.best_loss         = self.init_loss 
-        self.best_loss_err     = self.init_loss_err
-        self.best_weights      = self.gym.get_weights()
-        self.best_epoch        = 0        
+        self.data.init_loss         = mean( self.data.P, result0.loss )
+        self.data.init_loss_err     = err( self.data.P, result0.loss )
+        self.data.best_loss         = self.data.init_loss 
+        self.data.best_loss_err     = self.data.init_loss_err
+        self.data.best_weights      = self.gym.get_weights()
+        self.data.best_epoch        = 0        
         
-        self.utilities         = pdct()
-        self.utilities.full_util      = []
-        self.utilities.full_util0     = []
-        self.utilities.full_util_err  = []
-        self.utilities.full_util0_err = []
-        self.utilities.val_util       = []
-        self.utilities.val_util0      = []
+        self.data.utilities         = pdct()
+        self.data.utilities.full_util      = []
+        self.data.utilities.full_util0     = []
+        self.data.utilities.full_util_err  = []
+        self.data.utilities.full_util0_err = []
+        self.data.utilities.val_util       = []
+        self.data.utilities.val_util0      = []
         
-        print("\rDeep Hedging Engine: warming up for %ld epochs and %ld samples (%ld validation samples) ...         " % (epochs, world.nSamples, self.val_world.nSamples), end='')
+        # plotting
+        self.plotter              = Plotter()
+        
+        # caching, config
+        self.cache_dir        = config_caching("directory", "~/dh_cache", str, "If specified, will use the directory to store a persistence file for the model")
+        self.cache_mode       = config_caching("mode", CacheMode.ON, CacheMode.MODES, "Caching strategy: %s" % CacheMode.HELP)
+        self.cache_freq       = config_caching("epoch_freq", 10, Int>0, "How often to cache results, in number of epochs")
 
+        self.cache_mode       = CacheMode( self.cache_mode )
+        self.cache_dir        = SubDir(self.cache_dir, "!")
+        optimizer_id          = uniqueHash( tf.keras.optimizers.serialize( gym.optimizer ) )
+        self.cache_file       = uniqueFileName48( gym.unique_id, optimizer_id, world.unique_id, val_world.unique_id )
+        self.full_cache_file  = self.cache_dir.fullKeyName( self.cache_file )
+        self.cache_epoch_off  = 0    # how many epochs have been restored from cache, if any
+        self.cache_last_epoch = -1   # last restored or written epoch
+        config_caching.done()
+
+        # restore training from cache
+        # ---------------------------
+        
+        if not self.cache_mode.is_off:
+            print("Caching enabled @ '%s'" %  self.full_cache_file)
+            if self.cache_mode.delete:
+                self.cache_dir.delete( self.cache_file )    
+            elif self.cache_mode.read:
+                # restore cache                
+                cache = self.cache_dir.read( self.cache_file )
+                if not cache is None:
+                    # load everything except the gym 
+                    monitor_cache = cache['monitor']
+                    for k in self.data:
+                        assert k in monitor_cache, "Consistency error: self.data contains key '%s' (type %s), which is not contained in the restored cache" % (k, type(self.data[k]))
+                    # restore gym
+                    if not self.gym.restore_from_cache( cache['gym'], world ):
+                        print("\rCache consistency error: could not write weights from cache to current model. This is most likely because the model architecture changed.\n"\
+                              "Use config.train.caching.mode = 'renew' to rebuild the cache if this is the case. Use config.train.caching.mode = 'off' to turn caching off.\n")
+                    else:
+                        for k in monitor_cache:
+                            assert k in self.data, "Could not find '%s' in self.data?" % k
+                            self.data[k] = monitor_cache[k]
+                        _log.verify( self.data.epoch >= 0, "Error: object restored from cache had epoch set to %ld", self.data.epoch )
+                        # tell world that we were restored
+                        self.cache_last_epoch = self.data.epoch
+                        self.cache_epoch_off  = self.data.epoch+1
+                        self.data.epochs      = epochs
+                        print("Cache successfully loaded. Current epoch: %ld" % self.data.epoch )
+
+        # initialize timing
+        self.data.time0            = time.time()
+        self.data.time_last        = self.cache_last_epoch    
+        if self.cache_epoch_off >= epochs:
+            print( "Nothing to do: cached model loaded from %s represents a trained model up to %ld epochs (you have asked to train for %ld epochs).\n"\
+                   "Raise number of epochs or turn off caching to re-start training.\n\nPlotting results for the trained model.\n" % \
+                   ( self.full_cache_file, self.cache_epoch_off, epochs ) )
+        else:
+            remaining = "" if self.data.epoch == -1 else "remaining "
+            weights   = fmt_big_number( self.data.num_weights )
+            
+            print("\rDeep Hedging Engine: warming up to train %s weights using %ld %sepochs over %ld samples and %ld validation samples ...         " % (weights,epochs-(self.data.epoch+1), remaining, world.nSamples, self.val_world.nSamples), end='')
+
+    @property
+    def is_done(self):
+        return self.data.epoch+1 >= self.data.epochs
+    
     def on_epoch_begin( self, epoch, logs = None ):# NOQA
-        if self.epoch == -1:
-            print("\r\33[2KDeep Hedging Engine: first of %ld epochs for %ld samples (%ld validation samples) started. Compiling graph ...       " % (self.epochs, self.world.nSamples, self.val_world.nSamples), end='')
+        if self.data.epoch == -1:
+            weights   = fmt_big_number( self.data.num_weights )
+            print("\r\33[2KDeep Hedging Engine: first of %ld epochs for training %s weights over %ld samples and %ld validation samples started. Compiling graph ...       " % (self.data.epochs, weights, self.world.nSamples, self.val_world.nSamples), end='')
+        epoch                 = epoch + self.cache_epoch_off # cached warm start
             
     def on_epoch_end( self, epoch, logs = None ):
         """ Called when an epoch ends """
-        if self.epoch == -1:
+        if self.data.epoch == -1:
             empty = " "*200
             print("\r\33[2K "+empty+"\r", end='')
-        self.full_result = npCast( self.gym(self.world.tf_data) )
-        self.val_result  = npCast( self.gym(self.val_world.tf_data) )
-        self.epoch       = epoch
+        
+        epoch                 = epoch + self.cache_epoch_off # cached warm start
+        assert len(self.data.losses.batch) == epoch, "Internal error: expected %ld losses. Found %s. Cache Epoch is %ld" % ( epoch,len(self.data.losses.batch),self.cache_epoch_off)
+        self.data.full_result = npCast( self.gym(self.world.tf_data) )
+        self.data.val_result  = npCast( self.gym(self.val_world.tf_data) )
+        self.data.epoch       = epoch
 
         # losses
         # Note that we apply world.sample_weights to all calculations
         # so we are in sync with keras.fit()
-        self.losses.batch.append(   float( logs['loss_default_loss'] ) ) # we read the metric instead of 'loss' as this appears to be weighted properly
-        self.losses.full.append(    mean(self.P, self.full_result.loss) )
-        self.losses.val.append(     mean(self.val_P, self.val_result.loss) )
-        self.losses.init.append(    self.init_loss )
+        self.data.losses.batch.append(   float( logs['loss_default_loss'] ) ) # we read the metric instead of 'loss' as this appears to be weighted properly
+        self.data.losses.full.append(    mean(self.data.P, self.data.full_result.loss) )
+        self.data.losses.val.append(     mean(self.data.val_P, self.data.val_result.loss) )
+        self.data.losses.init.append(    self.data.init_loss )
 
-        self.losses_err.full.append( err(self.P,self.full_result.loss) )
-        self.losses_err.val.append(  err(self.val_P,self.val_result.loss) )
+        self.data.losses_err.full.append( err(self.data.P,self.data.full_result.loss) )
+        self.data.losses_err.val.append(  err(self.data.val_P,self.data.val_result.loss) )
         
-        if self.losses.full[-1] < self.best_loss:
-            self.best_loss         = self.losses.full[-1]
-            self.best_loss_err     = self.best_loss_err
-            self.best_weights      = self.gym.get_weights()
-            self.best_epoch        = epoch
+        if self.data.losses.full[-1] < self.data.best_loss:
+            self.data.best_loss         = self.data.losses.full[-1]
+            self.data.best_loss_err     = self.data.best_loss_err
+            self.data.best_weights      = self.gym.get_weights()
+            self.data.best_epoch        = epoch
             
         # utilities
-        self.utilities.full_util.append(     mean(self.P, self.full_result.utility ) )
-        self.utilities.full_util0.append(    mean(self.P, self.full_result.utility0) )
-        self.utilities.full_util_err.append( err( self.P, self.full_result.utility ) )
-        self.utilities.full_util0_err.append(err( self.P, self.full_result.utility0) )
-        self.utilities.val_util.append(      mean(self.val_P, self.val_result.utility ) )
-        self.utilities.val_util0.append(     mean(self.val_P, self.val_result.utility0 ) )
+        self.data.utilities.full_util.append(     mean(self.data.P, self.data.full_result.utility ) )
+        self.data.utilities.full_util0.append(    mean(self.data.P, self.data.full_result.utility0) )
+        self.data.utilities.full_util_err.append( err( self.data.P, self.data.full_result.utility ) )
+        self.data.utilities.full_util0_err.append(err( self.data.P, self.data.full_result.utility0) )
+        self.data.utilities.val_util.append(      mean(self.data.val_P, self.data.val_result.utility ) )
+        self.data.utilities.val_util0.append(     mean(self.data.val_P, self.data.val_result.utility0 ) )
+        
+        # cache or not
+        # ------------
+        
+        if epoch % self.cache_freq == 0 and self.cache_mode.write and epoch > self.cache_last_epoch:
+            assert self.data.epoch >= 0, "Internal error: epoch %ld should not happen" % self.data.epoch
+            cache = { 'gym':     self.gym.create_cache(),
+                      'monitor': self.data
+                    }            
+            self.cache_dir.write( self.cache_file, cache )
+            self.cache_last_epoch = self.data.epoch
         
         # print or not
         # ------------
         
-        total_time_passed = time.time() - self.time0 
-        if not self.time_out is None and total_time_passed > self.time_out:
+        total_time_passed = time.time() - self.data.time0 
+        if not self.data.time_out is None and total_time_passed > self.data.time_out:
             print("\r\33[2K**** Training timed out after a run time of %s" % fmt_seconds(total_time_passed))
             self.model.stop_training = True
-            self.why_stopped         = "Timeout after %s" % fmt_seconds(total_time_passed)
+            self.data.why_stopped    = "Timeout after %s" % fmt_seconds(total_time_passed)
         elif epoch != 0 and \
-            epoch % self.epoch_refresh != 0 and \
-            ( time.time() - self.time_last ) < self.time_refresh:
+            epoch % self.data.epoch_refresh != 0 and \
+            ( time.time() - self.data.time_last ) < self.data.time_refresh:
             return
         
-        self.plot()
-        
-    def plot(self):
-        """ 
-        Update our plots
-        Create figures and subplots if not done so before
-        """
-        assert self.epoch >= 0, "Do not call me before the first epoch"
-        
-        if self.fig is None:
-            print("\r")
-            # create figure
-            self.fig                        = figure(row_size=self.fig_row_size, col_size=self.fig_col_size, col_nums=self.fig_col_nums, tight=True )
-            
-            # by epoch
-            self.plot_loss_by_epoch         = Plot_Loss_By_Epoch(    fig=self.fig, title="Losses (recent)", epochs=self.epochs, err_dev=self.err_dev, lookback_window=self.lookback_window, show_epochs=self.show_epochs )
-            self.plot_loss_by_epoch_all     = Plot_Loss_By_Epoch(    fig=self.fig, title="Losses (all)", epochs=self.epochs, err_dev=self.err_dev, lookback_window=self.epochs, show_epochs=self.epochs )
-            self.plot_gains_utility_by_epoch = Plot_Utility_By_Epoch( fig=self.fig, name="Gains", err_dev=self.err_dev, epochs=self.epochs, lookback_window=self.lookback_window, show_epochs=self.show_epochs )
-            self.plot_payoff_utility_by_epoch = Plot_Utility_By_Epoch( fig=self.fig, name="Payoff", err_dev=self.err_dev, epochs=self.epochs, lookback_window=self.lookback_window, show_epochs=self.show_epochs )
+        self.plotter(self.data, self.world, self.val_world , last_cached_epoch = self.cache_last_epoch, cache_epoch_off = self.cache_epoch_off )
 
-            self.fig.next_row()
-            
-            # by performance - training
-            # a key aspect of using utility based pricing is that when we solve \sup_a U( Z + a dH ), we will get a non-zere value u* = U( Z + a* dH ) at the optimal point a*.
-            # This is the cash value of the position Z+a*dH, and it must be compared to the unhedged utility u0 = U(Z).
-            
-            self.plot_returns_by_spot_adj_ret      = Plot_Returns_By_Spot_Ret(      fig=self.fig, ret_name = "Returns less Utility", set_name="training set", bins=self.bins )
-            self.plot_returns_by_spot_ret          = Plot_Returns_By_Spot_Ret(      fig=self.fig, ret_name = "Raw Returns", set_name="training set", bins=self.bins )
-#            self.plot_returns_by_percentile        = Plot_Returns_By_Percentile(    fig=self.fig, set_name="training set", bins=self.bins )
-            self.plot_utility_by_cumpercentile     = Plot_Utility_By_CumPercentile( fig=self.fig, set_name="training set", bins=self.bins )
-            
-            # by performance - validation
-            self.val_plot_returns_by_spot_adj_ret  = Plot_Returns_By_Spot_Ret(      fig=self.fig, ret_name = "Returns less Utility", set_name="validation set", bins=self.bins )
-            self.val_plot_returns_by_spot_ret      = Plot_Returns_By_Spot_Ret(      fig=self.fig, ret_name = "Raw Returns", set_name="validation set", bins=self.bins )
-            #self.val_plot_returns_by_percentile    = Plot_Returns_By_Percentile(    fig=self.fig, set_name="validation set", bins=self.bins )
-            self.val_plot_utility_by_cumpercentile = Plot_Utility_By_CumPercentile( fig=self.fig, set_name="validation set", bins=self.bins )
-
-            self.fig.next_row()
-
-            # activity by step
-            self.plot_actions_by_step          = Plot_Activity_By_Step(    fig=self.fig, activity_name="Actions\n(training set)", pcnt_lo=self.pcnt_lo, pcnt_hi=self.pcnt_hi, inst_names=self.world.inst_names )
-            self.plot_deltas_by_step           = Plot_Activity_By_Step(    fig=self.fig, activity_name="Delta\n(training set)", pcnt_lo=self.pcnt_lo, pcnt_hi=self.pcnt_hi, inst_names=self.world.inst_names )
-
-            self.fig.render()
-        
-        # update live graphics
-        # --------------------
-        self.fig.suptitle("Learning to Trade, epoch %ld / %ld" % (self.epoch+1,self.epochs), fontsize=20)
-        
-        # by epoch
-        self.plot_loss_by_epoch.update( epoch=self.epoch, losses=self.losses, loss_errs=self.losses_err, best_epoch=self.best_epoch, best_loss=self.best_loss )
-        self.plot_loss_by_epoch_all.update( epoch=self.epoch, losses=self.losses, loss_errs=self.losses_err, best_epoch=self.best_epoch, best_loss=self.best_loss )
-        self.plot_gains_utility_by_epoch.update( epoch=self.epoch, best_epoch=self.best_epoch,  full_util=self.utilities.full_util, full_util_err=self.utilities.full_util_err, val_util=self.utilities.val_util)
-        self.plot_payoff_utility_by_epoch.update( epoch=self.epoch, best_epoch=self.best_epoch,  full_util=self.utilities.full_util0, full_util_err=self.utilities.full_util0_err, val_util=self.utilities.val_util0)
-
-        # by performance - training
-        # Note that subtract the OCE utility from gains (the hedged portfolio) and payoff (the input).
-        # Subtracting the OCE utility means that both are of equivalent utility.
-        adjusted_full_gains  = self.full_result.gains - mean(self.P, self.full_result.utility)
-        adjusted_full_hedge  = (self.full_result.gains - self.full_result.payoff) - mean(self.P, self.full_result.utility)
-        adjusted_full_payoff = self.full_result.payoff - mean(self.P, self.full_result.utility0)
-        self.plot_returns_by_spot_adj_ret.update( P=self.P, gains=adjusted_full_gains, hedge=adjusted_full_hedge, payoff=adjusted_full_payoff, spot_ret=self.world.diagnostics.per_path.spot_ret )
-        self.plot_returns_by_spot_ret.update( P=self.P, gains=self.full_result.gains, hedge=self.full_result.gains - self.full_result.payoff, payoff=self.full_result.payoff, spot_ret=self.world.diagnostics.per_path.spot_ret )
-        #self.plot_returns_by_percentile.update( P=self.P, gains=adjusted_full_gains, payoff=adjusted_full_payoff )
-        self.plot_utility_by_cumpercentile.update( P=self.P, utility=self.full_result.utility, utility0=self.full_result.utility0 )
-        
-        # by performance - validation
-        adjusted_val_gains  = self.val_result.gains - mean(self.val_P, self.val_result.utility)
-        adjusted_val_hedge  = (self.val_result.gains - self.val_result.payoff) - mean(self.val_P, self.val_result.utility)
-        adjusted_val_payoff = self.val_result.payoff - mean(self.val_P, self.val_result.utility0)
-        self.val_plot_returns_by_spot_adj_ret.update( P=self.val_P, gains=adjusted_val_gains, hedge=adjusted_val_hedge, payoff=adjusted_val_payoff, spot_ret=self.val_world.diagnostics.per_path.spot_ret )
-        self.val_plot_returns_by_spot_ret.update( P=self.val_P, gains=self.val_result.gains, hedge=self.val_result.gains - self.val_result.payoff, payoff=self.val_result.payoff, spot_ret=self.val_world.diagnostics.per_path.spot_ret )
-        #self.val_plot_returns_by_percentile.update( P=self.val_P, gains=adjusted_val_gains, payoff=adjusted_val_payoff )
-        self.val_plot_utility_by_cumpercentile.update( P=self.val_P, utility=self.val_result.utility, utility0=self.val_result.utility0 )
-        
-        # activity by step
-        assert len(self.full_result.actions.shape) == 3, "Shape %s" % self.full_result.actions.shape
-        self.plot_actions_by_step.update( P=self.P, action=self.full_result.actions )
-        self.plot_deltas_by_step.update( P=self.P, action=self.full_result.deltas )
-        self.fig.render()
-
-        # Print
-        # -----        
-        full_loss_mean    = self.losses.full[-1]
-        full_loss_err     = self.losses_err.full[-1]
-        val_loss_mean     = self.losses.val[-1]
-        val_loss_err      = self.losses_err.val[-1]
-        batch_loss        = self.losses.batch[-1]
-        total_time_passed = time.time() - self.time0 
-        time_per_epoch    = total_time_passed / float(self.epoch+1)
-        time_left         = time_per_epoch * float(self.epochs-self.epoch)
-        
-        str_intro = "Training %ld/%ld epochs; %ld samples; %ld validation samples batch size %ld" % ( self.epoch+1, self.epochs, self.world.nSamples, self.val_world.nSamples, self.batch_size)
-        str_perf  = "initial loss %g (%g), full %g (%g), best %g (%g), batch %g, val %g (%g). Best epoch %ld" % ( \
-                                        self.init_loss, self.init_loss_err, \
-                                        full_loss_mean, full_loss_err, \
-                                        self.best_loss, self.best_loss_err, \
-                                        batch_loss, \
-                                        val_loss_mean, val_loss_err, \
-                                        self.best_epoch )
-        str_time  = "time elapsed %s; time per epoch %s; estimated time remaining %s" % ( fmt_seconds(total_time_passed), fmt_seconds(time_per_epoch), fmt_seconds(time_left) )        
-        str_time  = str_time if self.time_out is None else str_time + ("; time out %ld" % fmt_seconds(self.time_out))
-        print("\r%s | %s | %s                         " % ( str_intro, str_perf, str_time ), end='')
-              
-    def finalize( self, set_best = True ):
+    def finalize( self ):
         """ Plot final result and copy best weights to model """
-        if self.why_stopped == "Aborted":
+        
+        # tell user what happened
+        if self.data.why_stopped == "Aborted":
             print("\r                                      \r*** Aborted ... ", end='')
-        self.gym.set_weights( self.best_weights )
-        self.full_result = npCast( self.gym(self.world.tf_data) )
-        self.val_result  = npCast( self.gym(self.val_world.tf_data) )
-        self.plot()
-        print("\n Status: %s.\n Weights set to best epoch: %ld\n" % (self.why_stopped, self.best_epoch) )
-        self.fig.close()
+        else:
+            empty = " "*200
+            print("\r\33[2K "+empty+"\r", end='')
+
+        # cache current state /before/ we reset gym to its best weights
+        # this way we can continue to train from where we left it
+        cached_msg = ""
+        if self.data.epoch >= 0 and self.data.epoch != self.cache_last_epoch and self.cache_mode.write:
+            cache = { 'gym':     self.gym.create_cache(),
+                      'monitor': self.data
+                    }            
+            self.cache_dir.write( self.cache_file, cache )
+            self.cache_last_epoch = self.data.epoch
+            cached_msg = " State of training until epoch %ld cached into %s\n" % (self.cache_last_epoch, self.full_cache_file)
+
+        # restore best weights
+        self.gym.set_weights( self.data.best_weights )
+        self.data.full_result = npCast( self.gym(self.world.tf_data) )
+        self.data.val_result  = npCast( self.gym(self.val_world.tf_data) )
+
+        # upgrade plot
+        self.plotter(self.data, self.world, self.val_world , last_cached_epoch = self.cache_last_epoch, cache_epoch_off = self.cache_epoch_off)
+        print("\n Status: %s.\n Weights set to best epoch: %ld\n%s" % (self.data.why_stopped, self.data.best_epoch,cached_msg) )
+        self.plotter.close()
         

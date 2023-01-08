@@ -8,7 +8,7 @@ June 30, 2022
 @author: hansbuehler
 """
 
-from deephedging.base import Logger, Config, dh_dtype, tf, tfCast, pdct, tf_dict, assert_iter_is_nan
+from deephedging.base import Logger, Config, dh_dtype, tf, tfCast, pdct, tf_dict, assert_iter_not_is_nan
 from cdxbasics.dynaplot import figure, colors_tableau
 import numpy as np
 import math as math
@@ -16,7 +16,6 @@ import math as math
 from scipy.stats import norm
 _log = Logger(__file__)
 
-        
 class SimpleWorld_Spot_ATM(object):
     """
     Simple World with one asset and one floating ATM option.
@@ -73,6 +72,12 @@ class SimpleWorld_Spot_ATM(object):
             
         dt : floast
             Time step.    
+            
+        config : Config
+            Copy of the config file, for cloning
+            
+        unique_id : str
+            Unique ID generate off the config file, for serialization
     """
     
     def __init__(self, config : Config, dtype=dh_dtype ):
@@ -88,8 +93,9 @@ class SimpleWorld_Spot_ATM(object):
                       
              To use black & scholes mode use hard overwrite black_scholes = True
         """
-        self.dtype   = dtype
-        self.config  = config.copy()   # for cloning
+        self.dtype      = dtype
+        self.unique_id = config.unique_id() # for serialization
+        self.config    = config.copy()      # for cloning
 
         # read config
         # -----------
@@ -359,7 +365,7 @@ class SimpleWorld_Spot_ATM(object):
             )
             
         # check numerics
-        assert_iter_is_nan( self.data, "data" )
+        assert_iter_not_is_nan( self.data, "data" )
  
         # data
         # what gym() gets
@@ -384,7 +390,7 @@ class SimpleWorld_Spot_ATM(object):
             )
 
         # check numerics
-        assert_iter_is_nan( self.diagnostics, "diagnostics" )
+        assert_iter_not_is_nan( self.diagnostics, "diagnostics" )
         
         # generating sample weights
         # the tf_sample_weights is passed to keras train and must be of size [nSamples,1]

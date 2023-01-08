@@ -6,10 +6,13 @@ Training environment for deep hedging.
 June 30, 2022
 @author: hansbuehler
 """
-from .base import Logger, Config, tf, tfp, dh_dtype, pdct, tf_back_flatten, tf_make_dim
+from .base import Logger, Config, tf, tfp, dh_dtype, pdct, tf_back_flatten, tf_make_dim, Int, Float
 from .agents import AgentFactory
 from .objectives import MonetaryUtility
 from collections.abc import Mapping
+from cdxbasics.util import uniqueHash
+import numpy as np
+
 _log = Logger(__file__)
 
 class VanillaDeepHedgingGym(tf.keras.Model):
@@ -27,7 +30,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         An alternative design would be to pass the agent as parameter but then
         validate that it has the correct number of instruments.
         
-        Parameters
+        Parameters 07ed683a03a89d54ff28a6385bfd0d48
         ----------
             config : Config
                 Sets up the gym, and instantiates the agent
@@ -42,27 +45,40 @@ class VanillaDeepHedgingGym(tf.keras.Model):
                 Type
         """
         tf.keras.Model.__init__(self, name=name, dtype=dtype )
-        seed                       = config.tensorflow("seed", 423423423, help="Set tensor random seed. Leave to None if not desired.")
+        seed                       = config.tensorflow("seed", 423423423, int, "Set tensor random seed. Leave to None if not desired.")
         self.hard_clip             = config.environment('hard_clip', False, bool, "Use min/max instread of soft clip for limiting actions by their bounds")
-        self.outer_clip            = config.environment('outer_clip', True, bool, "Apply a hard clip 10 times the boundaries")
-        hinge_softness             = config.environment('softclip_hinge_softness', 1., float, help="Specifies softness of bounding actions between lbnd_a and ubnd_a")
+        self.outer_clip            = config.environment('outer_clip', True, bool, "Apply a hard clip 'outer_clip_cut_off' times the boundaries")
+        self.outer_clip_cut_off    = config.environment('outer_clip_cut_off', 100., Float>=1., "Multiplier on bounds for outer_clip")
+        hinge_softness             = config.environment('softclip_hinge_softness', 1., Float>0., "Specifies softness of bounding actions between lbnd_a and ubnd_a")
         self.softclip              = tfp.bijectors.SoftClip( low=0., high=1., hinge_softness=hinge_softness, name='soft_clip' )
-        self.utility               = MonetaryUtility( config.objective, name="utility",  dtype=self.dtype ) 
-        self.utility0              = MonetaryUtility( config.objective, name="utility0", dtype=self.dtype ) 
         self.config_agent          = config.agent.detach()
+        self.config_objective      = config.objective.detach()
         self.agent                 = None
+        self.utility               = None
+        self.utility0              = None
+        self.unique_id             = config.unique_id()  # for serialization
         config.done()
         
         if not seed is None:
             tf.random.set_seed( seed )
         
+    @property
+    def num_trainable_weights(self) -> int:
+        """ Returns the number of weights. The object must have been called once """
+        assert not self.agent is None, "build() must be called first"
+        weights = self.trainable_weights
+        return np.sum( [ np.prod( w.get_shape() ) for w in weights ] )
+    
     def build(self, shapes : dict ):
         """ Build the model. See call(). """
-        assert self.agent is None, "build() called twioce?"
+        assert self.agent is None, "build() called twice?"
         _log.verify( isinstance(shapes, Mapping), "'shapes' must be a dictionary type. Found type %s", type(shapes ))
+
         nInst         = int( shapes['market']['hedges'][2] )
         self.agent    = AgentFactory( nInst, self.config_agent, name="agent", dtype=self.dtype ) 
-        
+        self.utility  = MonetaryUtility( self.config_objective, name="utility",  dtype=self.dtype ) 
+        self.utility0 = MonetaryUtility( self.config_objective, name="utility0", dtype=self.dtype ) 
+
     def call( self, data : dict, training : bool = False ) -> dict:
         """
         Gym track.
@@ -152,7 +168,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             # action
             action, state  =  self.agent( live_features, training=training )
             _log.verify( action.shape.as_list() in [ [nBatch, nInst], [nInst] ], "Error: action: expected shape %s, found %s", [nBatch, nInst], action.shape.as_list() )
-            action         =  tf.debugging.check_numerics(action, "Numerical error computing action in %s" % __file__ )
+            #DEBUG action         =  tf.debugging.check_numerics(action, "Numerical error computing action in %s" % __file__ )
             action         =  self._clip_actions(action, lbnd_a[:,j,:], ubnd_a[:,j,:] )
             delta          =  delta + action
             
@@ -163,8 +179,8 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             actions.append( tf.stop_gradient( action )[:,tf.newaxis,:] )
             deltas.append( tf.stop_gradient( delta )[:,tf.newaxis,:] )
 
-        pnl  = tf.debugging.check_numerics(pnl, "Numerical error computing pnl in %s" % __file__ )
-        cost = tf.debugging.check_numerics(cost, "Numerical error computing cost in %s" % __file__ )
+        pnl  = tf.debugging.check_numerics(pnl, "Numerical error computing pnl in %s. Turn on tf.enable_check_numerics to find the root cause. Note that they are disabled in trainer.py" % __file__ )
+        cost = tf.debugging.check_numerics(cost, "Numerical error computing cost in %s. Turn on tf.enable_check_numerics to find the root cause. Note that they are disabled in trainer.py" % __file__ )
 
         # compute utility
         # ---------------
@@ -198,10 +214,11 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         
     def _clip_actions( self, actions, lbnd_a, ubnd_a ):
         """ Clip the action within lbnd_a, ubnd_a """
+        
         with tf.control_dependencies( [ tf.debugging.assert_greater_equal( ubnd_a, lbnd_a, message="Upper bound for actions must be bigger than lower bound" ),
                                         tf.debugging.assert_greater_equal( ubnd_a, 0., message="Upper bound for actions must not be negative" ),
                                         tf.debugging.assert_less_equal( lbnd_a, 0., message="Lower bound for actions must not be positive" ) ] ):
-            
+        
             if self.hard_clip:
                 # hard clip
                 # this is recommended for debugging only.
@@ -209,21 +226,22 @@ class VanillaDeepHedgingGym(tf.keras.Model):
                 actions = tf.minimum( actions, ubnd_a )
                 actions = tf.maximum( actions, lbnd_a )
                 return actions            
-            
+
             if self.outer_clip:
                 # to avoid very numerical errors due to very
                 # large pre-clip actions, we cap pre-clip values
                 # hard at 10 times the bounds.
                 # This can happen if an action has no effect
                 # on the gains process (e.g. hedge == 0)
-                actions = tf.minimum( actions, ubnd_a*10. )
-                actions = tf.maximum( actions, lbnd_a*10. )
+                actions = tf.minimum( actions, ubnd_a*self.outer_clip_cut_off )
+                actions = tf.maximum( actions, lbnd_a*self.outer_clip_cut_off )
 
             dbnd = ubnd_a - lbnd_a
             rel  = ( actions - lbnd_a ) / dbnd
             rel  = self.softclip( rel )
             act  = tf.where( dbnd > 0., rel *  dbnd + lbnd_a, 0. )
-            return tf.debugging.check_numerics(act, "Numerical error clipping action in %s" % __file__ )
+            act  = tf.debugging.check_numerics(act, "Numerical error clipping action in %s. Turn on tf.enable_check_numerics to find the root cause. Note that they are disabled in trainer.py" % __file__ )
+            return act
 
     def _features( self, data : dict, nSteps : int) -> (dict, dict):
         """ 
@@ -250,4 +268,95 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         features_per_path      = { tf_make_dim( _, dim=2 ) for _ in features_per_path_i }
         
         return features_per_step, features_per_path
+
+    def create_cache( self ):
+        """
+        Create a dictionary which allows reconstructing the current model.
+        """
+        assert not self.agent is None, "build() not called yet"
+        opt_config = tf.keras.optimizers.serialize( self.optimizer )
+        return dict( gym_uid       = self.unique_id,
+                     gym_weights   = self.get_weights(),
+                     opt_uid       = uniqueHash( opt_config ),
+                     opt_config    = opt_config,
+                     opt_weights   = self.optimizer.get_weights()
+                   )
+                
+    def restore_from_cache( self, cache, world ) -> bool:
+        """
+        Restore 'self' from cache.
+        Note that we have to call() this object before being able to use this function
+        
+        TODO remvoe world
+        
+        This function returns False if the cached weights do not match the current architecture.
+        """        
+        assert not self.agent is None, "build() not called yet"
+        gym_uid     = cache['gym_uid']
+        gym_weights = cache['gym_weights']
+        opt_uid     = cache['opt_uid']
+        opt_config  = cache['opt_config']
+        opt_weights = cache['opt_weights']
+        
+        self_opt_config = tf.keras.optimizers.serialize( self.optimizer )
+        self_opt_uid    = uniqueHash( self_opt_config )
+        
+        # check that the objects correspond to the correct configs
+        if gym_uid != self.unique_id:
+            _log.warn( "Cache restoration error: provided cache object has gym ID %s vs current ID %s", gym_uid, self.unique_id)
+            return False
+        if opt_uid != self_opt_uid:
+            _log.warn( "Cache restoration error: provided cache object has optimizer ID %s vs current ID %s\n"\
+                       "Stored configuration: %s\nCurrent configuration: %s", opt_uid, self_opt_uid, opt_config, self_opt_config)
+            return False
+
+        # load weights
+        # Note that we will continue with the restored weights for the gym even if we fail to restore the optimizer
+        try:
+            self.set_weights( gym_weights )
+        except ValueError as v:
+            _log.warn( "Cache restoration error: provided cache gym weights were not compatible with the gym")
+            return False
+        return True
+    
+        try:
+            self.optimizer.set_weights( opt_weights )
+        except ValueError as v:
+            _log.warn( "Cache restoration error: cached optimizer weights were not compatible with existing optimizer. Check restore_from_cache(): there is code which you can enable to try rectify this.")
+            return False
+        return True
+
+    """
+        # Optimzier
+        # If the optimizer has not been called yet, it does not have its internal weights set up.
+        # Does not seem to be an actual issue ...?
+
+        current_weights = self.optimizer.get_weights()
+        nOptWeights     = sum( [ np.asarray(w).size for w in opt_weights ] )
+        nCurrentWeights = sum( [ np.asarray(w).size for w in current_weights ] )
+        
+        if nOptWeights != nCurrentWeights:
+            _log.warn( "Cache restoration: number of cached weights for optimizer (%ld) does not match number of current weights (%ld). Attempting to train with existing optimier for one step", nOptWeights, nCurrentWeights)
+            self.fit(       x              = world.tf_data,
+                            y              = world.tf_y,
+                            batch_size     = len(y),
+                            sample_weight  = world.tf_sample_weights * float(world.nSamples),  # sample_weights are poorly handled in TF
+                            epochs         = 1,
+                            callbacks      = None,
+                            verbose        = 0 )
+
+            current_weights = self.optimizer.get_weights()
+            nCurrentWeights = sum( [ np.asarray(w).size for w in current_weights ] )
             
+            if nCurrentWeights != nOptWeights:
+                _log.warn( "Cache restoration: could not recover from misaligned weight settings. Even after training, the optimizer has %ld weights vs %ld cached weights.", nCurrentWeights, nOptWeights)
+                return False
+            
+        try:
+            self.optimizer.set_weights( opt_weights )
+        except ValueError as v:
+            _log.warn( "Cache restoration error: cached optimizer weights were not compatible with existing optimizer")
+            return False
+        return True
+    """
+        

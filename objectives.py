@@ -221,8 +221,8 @@ def utility( utility : str, lmbda : float, X : tf.Tensor, y : tf.Tensor = 0. ) -
         
     _log.verify( not u is None, "Unknown utility function '%s'", utility )      
     
-    u = tf.debugging.check_numerics(u, "Numerical error computing u in %s" % __file__ )
-    d = tf.debugging.check_numerics(d, "Numerical error computing d in %s" % __file__ )
+    u = tf.debugging.check_numerics(u, "Numerical error computing u in %s. Turn on tf.enable_check_numerics to find the root cause. Note that they are disabled in trainer.py" % __file__ )
+    d = tf.debugging.check_numerics(d, "Numerical error computing d in %s. Turn on tf.enable_check_numerics to find the root cause. Note that they are disabled in trainer.py" % __file__ )
     
     return pdct(
             u = u,

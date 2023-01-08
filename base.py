@@ -30,7 +30,6 @@ NUM_CPU = len(tf.config.list_physical_devices('CPU'))
 
 print("Tensorflow version %s running on %ld CPUs and %ld GPUs" % (tf.__version__, NUM_CPU, NUM_GPU))
 
-
 dh_dtype = tf.float32
 tf.keras.backend.set_floatx(dh_dtype.name)
 
@@ -322,13 +321,13 @@ def perct_exp( x : np.ndarray, lo : float, hi : float, weights : np.ndarray = No
 # Generic basicsassert 
 # -------------------------------------------------
 
-def assert_iter_is_nan( d : dict, name = "" ):
+def assert_iter_not_is_nan( d : dict, name = "" ):
     """ iteratively verify that 'd' does not contain Nan """
     for k in d:
         v = d[k]
         n = name + "." + k if name != "" else k
         if isinstance( v, Mapping ):
-            assert_iter_is_nan( v, n )
+            assert_iter_not_is_nan( v, n )
         else:
             assert np.sum(np.isnan(v)) == 0, "Internal numerical error for %s: %g" % (n,v)
 
@@ -340,8 +339,21 @@ def fmt_seconds( seconds : int ) -> str:
         return "%ld:%02ld" % (seconds//60, seconds%60)
     return "%ld:%02ld:%02ld" % (seconds//60//60, (seconds//60)%60, seconds%60)    
 
-
-
+def fmt_big_number( number : int ) -> str:
+    """ Return a nicely formatted big number string """
+    if number >= 10**10:
+        number = number//(10**9)
+        number = float(number) / 1000.
+        return "%gG" % number
+    if number >= 10**7:
+        number = number//(10**6)
+        number = float(number) / 1000.
+        return "%gM" % number
+    if number >= 10**4:
+        number = number//(10**3)
+        number = float(number) / 1000.
+        return "%gK" % number
+    return str(number)
 
 
 
