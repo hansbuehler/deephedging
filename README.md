@@ -21,25 +21,21 @@ Here
 * $U$ is a _monetary utility_ which can be thought of as a risk-adjusted return.<br>A classic example is the entropy, given by $U(X) := - \frac1\lambda \log\ \mathrm{E}\left[\ \exp(-\lambda X) \right] $. The code base supports a number of utility-based monetary utilities which can be found in the
 file <tt>objectives.py</tt>.
 
-<p>
 To test the code run <tt>notebooks/trainer.ipynb</tt>.
 
 
-<p>
 In order to run the Deep Hedging, we require:
-<ol>
-    <li><b>Market data</b>: this is referred to as a <tt>world</tt>. Among other members, world has a <tt>tf_data</tt> member which
+
+* __Market data__: this is referred to as a <tt>world</tt>. Among other members, world has a <tt>tf_data</tt> member which
         represents the feature sets across training samples, and <tt>tf_sample_weights</tt> which is the probability distribution
-        across samples. The sample code provides a simplistic default world implementation, but for any real application it is recommend to rely
+        across samples. The sample code provides a simplistic default world implementation: a simple Black & Scholes world, and a made up stochastic volatility
+     world. For any real application it is recommend to rely
         on fully machine learned market simulators, c.f. https://arxiv.org/abs/2112.06823.
-    </li>
-    <li><b>Gym</b>: the main Keras custom model. It is a Monte Carlo loop arund the actual underlying <tt>agent.py</tt> networks which represents $a$ in the formula above.<br>
-        Given a <tt>world</tt> object we may compute the loss given the prevailing action network as <tt>gym(world.tf_data)</tt>.
-    </li>
-    <li><b>Train</b>: some cosmetics around <tt>keras.fit()</tt> with some nice live visualization of our training progress using matplotlib if you 
+
+* __Gym__: the main Keras custom model. It is a Monte Carlo loop arund the actual underlying <tt>agent.py</tt> networks which represents $a$ in the formula above. Given a `world` object we may compute the loss given the prevailing action network as <tt>gym(world.tf_data)</tt>.
+
+* __Train__: some cosmetics around <tt>keras.fit()</tt> with some nice live visualization of our training progress using matplotlib if you 
         are in jupyter. See discussion below.
-    </li>
-</ol>
 
 To provide your own world with real or simulator data, see <tt>world.py</tt>.
 Here are <tt>world.tf_data</tt> entries used by <tt>gym.call()</tt>:
