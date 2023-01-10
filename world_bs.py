@@ -51,8 +51,8 @@ class SimpleWorld_BS(object):
             sample weights for train()
             Dimension (nSamples,1) c.f. https://stackoverflow.com/questions/60399983/how-to-create-and-use-weighted-metrics-in-keras
 
-        diagnostics : dict
-            Dictionary of diagnostics, e.g. the hidden drift and realized vol
+        details : dict
+            Dictionary of details, e.g. the hidden drift and realized vol
             of the asset (numpy)
 
         nSamples : int
@@ -198,23 +198,16 @@ class SimpleWorld_BS(object):
             market   = self.data.market,
             )
     
-        # diagnostics
+        # details
         # variables for visualization, but not available for the agent
         # TODO: remov dependency on this by plotting
-        self.diagnostics = pdct(
+        self.details = pdct(
             spot_all = spot, # [nSamples,nSteps+1] spots including spot at T
-            per_step = pdct(
-                spot1     = spot[:,:nSteps+1], # spot S0...Sm e.g. spot including spot at maturity
-                ),
-            per_path = pdct(
-                spot_ret  = spot[:,nSteps] / spot[:,0] - 1, # terminal spot return Sm/S0-1
-                spotT     = spot[:,nSteps]                 # terminal spot
-                )
             )
     
     
         # check numerics
-        assert_iter_not_is_nan( self.diagnostics, "diagnostics" )
+        assert_iter_not_is_nan( self.details, "details" )
         
         # generating sample weights
         # the tf_sample_weights is passed to keras train and must be of size [nSamples,1]
@@ -277,8 +270,8 @@ class SimpleWorld_BS(object):
         ax.set_title("Spot")
         ax.set_xlabel("Time")
         for i, color in zip( xSamples, colors_tableau() ):
-            ax.plot( timeline1, self.diagnostics.spot_all[i,:], "-", color=color )
-        ax.plot( timeline1, np.mean( self.diagnostics.spot_all, axis=0), "_", color="black", label="mean" )
+            ax.plot( timeline1, self.details.spot_all[i,:], "-", color=color )
+        ax.plot( timeline1, np.mean( self.details.spot_all, axis=0), "_", color="black", label="mean" )
         ax.legend()
         
         fig.render()

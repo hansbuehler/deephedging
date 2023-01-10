@@ -161,13 +161,17 @@ class Plot_Utility_By_Epoch(object): # NOQA
 # By terminal outcome
 # -------------------------------------------------------
 
+color_gains = "blue"
+color_hedge = "green"
+color_payoff = "orange"
+
+
 class Plot_Returns_By_Spot_Ret(object): # NOQA
     """
     Plot object for showing hedging performance by return of spot (the most intuitive)
     """
     
     def __init__(self, *, fig, ret_name, set_name, bins ): # NOQA
-        
         self.bins    = bins
         self.ax      = fig.add_subplot()            
         self.line    = None
@@ -188,14 +192,14 @@ class Plot_Returns_By_Spot_Ret(object): # NOQA
         payoff   = mean_bins( payoff, bins=self.bins, weights=P )
         
         if self.line is None:
-            self.line   =  self.ax.plot( x, gains, label="gains" )[0]
-            self.ax.plot( x, payoff, ":", label="payoff" )
-            self.line_h =  self.ax.plot( x, hedge, label="hedge" )[0]
+            self.line   =  self.ax.plot( x, gains, label="gains", color=color_gains )[0]
+            self.ax.plot( x, payoff, ":", label="payoff", color=color_payoff )
+            self.line_h =  self.ax.plot( x, -hedge, label="-hedge", color=color_hedge )[0]
             self.ax.plot( x, payoff*0., ":", color="black" )
             self.ax.legend()
         else:
             self.line.set_ydata( gains )
-            self.line_h.set_ydata( hedge )
+            self.line_h.set_ydata( -hedge )
 
         # below is pretty heuristic. If training works, below makes sense
         # as the gains process and the payoff are similar.
@@ -212,13 +216,15 @@ class Plot_Returns_By_Spot_Ret(object): # NOQA
 
 class Plot_Returns_By_Percentile(object): # NOQA
     """
-    Plot object for showing hedging performance by percentile returbs
+    Plot object for showing hedging performance by percentile returns
+    (not currently used)
     """
     
     def __init__(self, *, fig, set_name, bins ): # NOQA
         
         self.bins  = bins
-        self.line  = None
+        self.line1 = None
+        self.line2 = None
         self.ax    = fig.add_subplot()            
         self.ax.set_title("Cash Returns by Percentile\n(%s)" % set_name )
         self.ax.set_xlabel("Percentile")
@@ -232,14 +238,16 @@ class Plot_Returns_By_Percentile(object): # NOQA
         
         x = np.linspace( 0., 1., self.bins, endpoint=True )
         
-        if self.line is None:
-            self.line =  self.ax.plot( x, gains, label="gains" )[0]
-            self.ax.plot( x, payoff, ":", label="payoff" )
+        if self.line1 is None:
+            self.line1 =  self.ax.plot( x, gains, label="gains", color=color_gains )[0]
+            self.line2 =  self.ax.plot( [x[-1]], [gains[-1]], "*", color=color_gains )[0]
+            self.ax.plot( x, payoff, ":", label="payoff", color=color_payoff )
             self.ax.plot( x, payoff*0., ":", color="black" )
             self.ax.legend()
             self.ax.set_xlim( 0.-0.1, 1.+0.1 )
         else:
-            self.line.set_ydata( gains )
+            self.line1.set_ydata( gains )
+            self.line2.set_ydata( [gains[-1]] )
 
         min_ = min( np.min(gains), np.min(gains) )
         max_ = max( np.max(gains), np.max(gains) )
@@ -288,6 +296,70 @@ class Plot_Utility_By_CumPercentile(object): # NOQA
             max_ += 0.0001
         #self.ax.set_ylim(min_,max_)            
 
+# -------------------------------------------------------
+# Show hedges by spot
+# -------------------------------------------------------
+        
+class Plot_Activity_By_Spot(object): # NOQA
+    """
+    Plot action or delta by spot return and time step.
+    """
+    
+    def __init__(self, *, fig, bins, slices, which_inst, activity_name, inst_name, set_name ): # NOQA
+        self.bins       = bins
+        self.slices     = slices
+        self.which_inst = which_inst
+        self.inst_name  = inst_name
+        self.lines      = None
+        self.ax         = fig.add_subplot()
+        self.ax.set_title("%s by spot for %s\n(%s set)" % (activity_name, inst_name, set_name))
+        self.ax.set_xlabel("Spot return")
+        
+    def update(self, *, P, actions, spot_all, spot_ret ):# NOQA
+        assert len(actions.shape) == 3, "Actions are of wrong dimension"
+        nTime    = actions.shape[1]
+        slices   = min(self.slices,nTime)
+        timeixs  = np.linspace(0,nTime-1,slices,endpoint=True,dtype=np.int32)
+        
+        actions  = actions[:,:,self.which_inst]
+        first    = self.lines is None
+        min_     = None
+        max_     = None
+        if first:
+            self.lines = []
+
+        for i,t in zip(range(len(timeixs)),timeixs):
+            x     = spot_all[:,t] / spot_all[:,0] - 1.
+            ixs   = np.argsort( x )
+            x     = x[ixs]
+            x     = mean_bins( x, bins=self.bins, weights=P )
+
+            act_t = mean_bins( actions[:,t][ixs], bins=self.bins, weights=P )
+            r     = 2. * (1. - float(t+1) / float(actions.shape[1]))
+            c1    = max(min(r-1.,1.0),0.)
+            c2    = max(min(r,1.0),0.) 
+
+            if first:
+                self.lines.append( self.ax.plot( x, act_t, color=(1.,c1,c2), label=("%ld" % (t+1))  )[0])
+            else:
+                self.lines[i].set_ydata( act_t )
+
+            min_ = np.min( act_t ) if min_ is None else min( min_, np.min(act_t) )
+            max_ = np.max( act_t ) if max_ is None else max( max_, np.max(act_t) )
+
+        if min_ >= max_-0.00001:
+            min_ -= 0.0001
+            max_ += 0.0001
+        dx = (max_-min_)
+        min_ -= 0.1*dx
+        max_ += 0.1*dx
+        self.ax.set_ylim(min_,max_)     
+        self.ax.legend()
+        
+# -------------------------------------------------------
+# Hedges by by time step
+# -------------------------------------------------------
+
 class Plot_Activity_By_Step(object): # NOQA
     """
     Plot action or delta by step.
@@ -301,28 +373,28 @@ class Plot_Activity_By_Step(object): # NOQA
         self.lines      = None
         self.fills      = None
         self.ax         = fig.add_subplot()
-        self.ax.set_title("Activity by time step\n(%s)" % activity_name)
+        self.ax.set_title("Activity by time step: %s" % activity_name)
         self.ax.set_xlabel("Step")
         
-    def update(self, *, P, action ):# NOQA
+    def update(self, *, P, actions ):# NOQA
 
-        nSamples = action.shape[0]
-        nSteps   = action.shape[1]
-        nInst    = action.shape[2]
+        nSamples = actions.shape[0]
+        nSteps   = actions.shape[1]
+        nInst    = actions.shape[2]
         assert nInst == len(self.inst_names), "Internal error: %ld != %ld" % ( nInst, len(self.inst_names) )
         first    = self.lines is None
         
         # percentiles
         # -----------
         
-        x = np.linspace(1,nSteps,nSteps,endpoint=1,dtype=np.int32)
+        x = np.linspace(1,nSteps,nSteps,endpoint=True,dtype=np.int32)
 
         if self.lines is None:
             self.lines = []
             self.fills = []
 
         for iInst, color in zip( range(nInst), colors() ):
-            action_i       = action[:,:,iInst]
+            action_i       = actions[:,:,iInst]
             percentiles_i  = perct_exp( action_i, lo=self.pcnt_lo, hi=self.pcnt_hi, weights=P )
             mean_i         = np.sum( action_i*P[:,np.newaxis], axis=0, ) / np.sum(P)
             assert percentiles_i.shape[1] == 2, "error %s" % percentiles_i.shape
@@ -369,12 +441,12 @@ class Plotter(object):
         if self.fig is None:
             print("\r")
             # create figure
-            self.fig                        = figure(row_size=monitor.fig_row_size, col_size=monitor.fig_col_size, col_nums=monitor.fig_col_nums, tight=True )
+            self.fig                          = figure(row_size=monitor.fig_row_size, col_size=monitor.fig_col_size, col_nums=monitor.fig_col_nums, tight=True )
             
             # by epoch
-            self.plot_loss_by_epoch         = Plot_Loss_By_Epoch(    fig=self.fig, title="Losses (recent)", epochs=monitor.epochs, err_dev=monitor.err_dev, lookback_window=monitor.lookback_window, show_epochs=monitor.show_epochs )
-            self.plot_loss_by_epoch_all     = Plot_Loss_By_Epoch(    fig=self.fig, title="Losses (all)", epochs=monitor.epochs, err_dev=monitor.err_dev, lookback_window=monitor.epochs, show_epochs=monitor.epochs )
-            self.plot_gains_utility_by_epoch = Plot_Utility_By_Epoch( fig=self.fig, name="Gains", err_dev=monitor.err_dev, epochs=monitor.epochs, lookback_window=monitor.lookback_window, show_epochs=monitor.show_epochs )
+            self.plot_loss_by_epoch           = Plot_Loss_By_Epoch(    fig=self.fig, title="Losses (recent)", epochs=monitor.epochs, err_dev=monitor.err_dev, lookback_window=monitor.lookback_window, show_epochs=monitor.show_epochs )
+            self.plot_loss_by_epoch_all       = Plot_Loss_By_Epoch(    fig=self.fig, title="Losses (all)", epochs=monitor.epochs, err_dev=monitor.err_dev, lookback_window=monitor.epochs, show_epochs=monitor.epochs )
+            self.plot_gains_utility_by_epoch  = Plot_Utility_By_Epoch( fig=self.fig, name="Gains", err_dev=monitor.err_dev, epochs=monitor.epochs, lookback_window=monitor.lookback_window, show_epochs=monitor.show_epochs )
             self.plot_payoff_utility_by_epoch = Plot_Utility_By_Epoch( fig=self.fig, name="Payoff", err_dev=monitor.err_dev, epochs=monitor.epochs, lookback_window=monitor.lookback_window, show_epochs=monitor.show_epochs )
 
             self.fig.next_row()
@@ -397,6 +469,9 @@ class Plotter(object):
             # activity by step
             self.plot_actions_by_step          = Plot_Activity_By_Step(    fig=self.fig, activity_name="Actions\n(training set)", pcnt_lo=monitor.pcnt_lo, pcnt_hi=monitor.pcnt_hi, inst_names=world.inst_names )
             self.plot_deltas_by_step           = Plot_Activity_By_Step(    fig=self.fig, activity_name="Delta\n(training set)", pcnt_lo=monitor.pcnt_lo, pcnt_hi=monitor.pcnt_hi, inst_names=world.inst_names )
+            # activity by spot
+            self.plot_action0_by_step          = Plot_Activity_By_Spot(    fig=self.fig, bins=monitor.bins, slices=monitor.time_slices, which_inst=0, activity_name="Action", inst_name="spot", set_name="training")
+            self.plot_delta0_by_step           = Plot_Activity_By_Spot(    fig=self.fig, bins=monitor.bins, slices=monitor.time_slices, which_inst=0, activity_name="Delta", inst_name="spot", set_name="training")
 
             self.fig.render()
         
@@ -413,25 +488,33 @@ class Plotter(object):
         # by performance - training
         # Note that subtract the OCE utility from gains (the hedged portfolio) and payoff (the input).
         # Subtracting the OCE utility means that both are of equivalent utility.
+        spot_ret             = world.details.spot_all[:,-1] / world.details.spot_all[:,0] - 1.
+        val_spot_ret         = val_world.details.spot_all[:,-1] / val_world.details.spot_all[:,0] - 1.
+        
         adjusted_full_gains  = monitor.full_result.gains - mean(monitor.P, monitor.full_result.utility)
         adjusted_full_hedge  = (monitor.full_result.gains - monitor.full_result.payoff) - mean(monitor.P, monitor.full_result.utility)
         adjusted_full_payoff = monitor.full_result.payoff - mean(monitor.P, monitor.full_result.utility0)
-        self.plot_returns_by_spot_adj_ret.update( P=monitor.P, gains=adjusted_full_gains, hedge=adjusted_full_hedge, payoff=adjusted_full_payoff, spot_ret=world.diagnostics.per_path.spot_ret )
-        self.plot_returns_by_spot_ret.update( P=monitor.P, gains=monitor.full_result.gains, hedge=monitor.full_result.gains - monitor.full_result.payoff, payoff=monitor.full_result.payoff, spot_ret=world.diagnostics.per_path.spot_ret )
+        self.plot_returns_by_spot_adj_ret.update( P=monitor.P, gains=adjusted_full_gains, hedge=adjusted_full_hedge, payoff=adjusted_full_payoff, spot_ret=spot_ret )
+        self.plot_returns_by_spot_ret.update( P=monitor.P, gains=monitor.full_result.gains, hedge=monitor.full_result.gains - monitor.full_result.payoff, payoff=monitor.full_result.payoff, spot_ret=spot_ret )
         self.plot_utility_by_cumpercentile.update( P=monitor.P, utility=monitor.full_result.utility, utility0=monitor.full_result.utility0 )
         
         # by performance - validation
         adjusted_val_gains  = monitor.val_result.gains - mean(monitor.val_P, monitor.val_result.utility)
         adjusted_val_hedge  = (monitor.val_result.gains - monitor.val_result.payoff) - mean(monitor.val_P, monitor.val_result.utility)
         adjusted_val_payoff = monitor.val_result.payoff - mean(monitor.val_P, monitor.val_result.utility0)
-        self.val_plot_returns_by_spot_adj_ret.update( P=monitor.val_P, gains=adjusted_val_gains, hedge=adjusted_val_hedge, payoff=adjusted_val_payoff, spot_ret=val_world.diagnostics.per_path.spot_ret )
-        self.val_plot_returns_by_spot_ret.update( P=monitor.val_P, gains=monitor.val_result.gains, hedge=monitor.val_result.gains - monitor.val_result.payoff, payoff=monitor.val_result.payoff, spot_ret=val_world.diagnostics.per_path.spot_ret )
+        self.val_plot_returns_by_spot_adj_ret.update( P=monitor.val_P, gains=adjusted_val_gains, hedge=adjusted_val_hedge, payoff=adjusted_val_payoff, spot_ret=val_spot_ret)
+        self.val_plot_returns_by_spot_ret.update( P=monitor.val_P, gains=monitor.val_result.gains, hedge=monitor.val_result.gains - monitor.val_result.payoff, payoff=monitor.val_result.payoff, spot_ret=val_spot_ret )
         self.val_plot_utility_by_cumpercentile.update( P=monitor.val_P, utility=monitor.val_result.utility, utility0=monitor.val_result.utility0 )
         
         # activity by step
         assert len(monitor.full_result.actions.shape) == 3, "Shape %s" % monitor.full_result.actions.shape
-        self.plot_actions_by_step.update( P=monitor.P, action=monitor.full_result.actions )
-        self.plot_deltas_by_step.update( P=monitor.P, action=monitor.full_result.deltas )
+        self.plot_actions_by_step.update( P=monitor.P, actions=monitor.full_result.actions )
+        self.plot_deltas_by_step.update( P=monitor.P, actions=monitor.full_result.deltas )
+
+        # activity by time and spot
+        self.plot_action0_by_step.update( P=monitor.P, actions=monitor.full_result.actions, spot_all= world.details.spot_all, spot_ret=spot_ret )
+        self.plot_delta0_by_step.update( P=monitor.P, actions=monitor.full_result.deltas, spot_all= world.details.spot_all, spot_ret=spot_ret )
+
         self.fig.render()
 
         # Print
@@ -497,6 +580,7 @@ class NotebookMonitor(tf.keras.callbacks.Callback):
         self.data.bins             = config_visual("bins", 200, Int>3, "How many x to plot")
         self.data.pcnt_lo          = config_visual("confidence_pcnt_lo", 0.5, (Float > 0.) & (Float<=1.), "Lower percentile for confidence intervals")
         self.data.pcnt_hi          = config_visual("confidence_pcnt_hi", 0.5, (Float > 0.) & (Float<=1.), "Upper percentile for confidence intervals")
+        self.data.time_slices      = config_visual("time_slices", 10, Int>0, "How many slice of spot action and delta to print")
         config_visual.done()
 
         self.world                 = world
