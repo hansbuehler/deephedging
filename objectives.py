@@ -19,7 +19,16 @@ class MonetaryUtility(tf.keras.layers.Layer):
     The objective for a claim X is defined as
     
         sup_y E[ u(X+y)-y ]
-        
+ 
+    The variable 'y' needs to be learned.
+    The standard implementation is to learn the variable for the intial payoff and the overall hedging gains in the same
+    training loop (see loss definition for the gym).
+
+    By default 'y' is a plain real variable. That assumes that the initial state of the world is constant, and does not
+    differ by path. An example to the contrary is if we wanted to learn a hedging strategy accross products (e.g. different strikes for calls).
+    In this case, 'y' would have to be a network which depends on such `per_path` features.
+    The list of available per path features for a given world in a given gym can be obtained using gym.available_features_per_path()
+
     Attributes
     ----------
         y_model : bool
@@ -64,14 +73,8 @@ class MonetaryUtility(tf.keras.layers.Layer):
             config.y.mark_done()  # avoid error message from config.done()
         else:       
             features     = config.y("features", [], list, "Path-wise features used to define 'y'. If left empty, then 'y' becomes a simple variable.")
-            network      = config.y.network
-            self.y       = DenseLayer( features=features, nOutput=1, initial_value=0., config=network, name= name+"_OCE_y" if not name is None else "OCE_y", dtype=dtype )
+            self.y       = DenseLayer( features=features, nOutput=1, initial_value=0., config=config.y.network, name= name+"_OCE_y" if not name is None else "OCE_y", dtype=dtype )
         config.done() # all config read
-        
-    @property
-    def features(self) -> list:
-        """ Returns list of features required by this utility """
-        return self.y.features if self.y_model else []
         
     def call( self, data : dict, training : bool = False ) -> tf.Tensor:
         """
@@ -83,10 +86,10 @@ class MonetaryUtility(tf.keras.layers.Layer):
                 A dictrionary of tensors with all features available
                 at time zero. All tensors mus thave dimension 2.
                 Expects
-                		features_time_0 : all features required at this time, c.f. what was provided to init()
-                		payoff          : [nSamples,] terminal payoff
-                		pnl             : [nSamples,] trading pnl
-                		cost            : [nSamples,] cost.
+                    features_time_0 : all features available at time zero (see comments in the class description)
+                    payoff          : [nSamples,] terminal payoff
+                    pnl             : [nSamples,] trading pnl
+                    cost            : [nSamples,] cost.
                OCE utilities operate on X := payoff + gains - cost
             training : bool, optional
                 See tensor flow documentation
@@ -107,7 +110,7 @@ class MonetaryUtility(tf.keras.layers.Layer):
         Computes
             u(X+y) - y
         and its derivative in X for random variable X and y=self.y
-    				
+
         Parameters
         ----------
         X: tf.Tensor
@@ -117,7 +120,7 @@ class MonetaryUtility(tf.keras.layers.Layer):
             Check self.features
         training : bool, optional
             Whether we are in training model
-    			
+
         Returns
         -------
             dict: 
@@ -128,6 +131,14 @@ class MonetaryUtility(tf.keras.layers.Layer):
         y     = self.y( features_time_0, training=training ) 
         y     = tf.debugging.check_numerics(y, "Numerical error computing OCE_y in %s" % __file__ )
         return utility(self.utility, self.lmbda, X, y=y )
+        
+    @property
+    def features(self): # NOQA
+        return self.y.features
+    @property
+    def available_features(self): # NOQA
+        return self.y.available_features
+
         
 @tf.function  
 def utility( utility : str, lmbda : float, X : tf.Tensor, y : tf.Tensor = 0. ) -> dict:
@@ -146,7 +157,7 @@ def utility( utility : str, lmbda : float, X : tf.Tensor, y : tf.Tensor = 0. ) -
         Random variable, typically total gains on the path
     y: tf.Tensor, None, or 0
         OCE intercept y.
-			
+
     Returns
     -------
         dict:
@@ -155,48 +166,64 @@ def utility( utility : str, lmbda : float, X : tf.Tensor, y : tf.Tensor = 0. ) -
     utility  = str(utility)
     lmbda    = float(lmbda)
     y        = y if not y is None else 0.
-    gains    = X + y	
+    gains    = X + y
     
     _log.verify( lmbda >= 0., "Risk aversion 'lmbda' cannot be negative. Found %g", lmbda )
     if lmbda < 1E-12: 
+        # Zero lambda => mean
         utility = "mean"
         lmbda   = 1.
 
     if utility in ["mean", "expectation"]:
+        # Expectation
+        #
         u = gains
         d = tf.ones_like(gains)
         
     elif utility == "cvar":
-        # CVar risk measure.
-        # 1+lambda = 1/(1-p) where p is the required percentile, e.g. 95%
-        # For a given percentile
+        # CVaR risk measure
+        #   u(x) = (1+lambda) min(0, x)
+        # The resulting OCE measure U computes the expected value under the condition that X is below the p's percentile.
+        #   U(X) = E[ X | X <= P^{-1}[ X<=* ](p)
+        #
+        # Conversion from percentile p (e.g. 95%):
+        #   1+lambda = 1/(1-p) 
+        # and
         #   lambda = p / (1-p)
+        #
         # In other words, for p=50% use 1. (as in https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3120710)
-        #                 for p=95% use 19. 
-        # For a given lmbda
-        #   p = L / (1+L)
+        #                 for p=95% use 19.
+        
         u = (1.+lmbda) * tf.math.minimum( 0., gains ) - y
         d = tf.where( gains < 0., -(1.+lmbda), 0. )
 
     elif utility == "quad":
-        # quadratic CVaR: quadratic penalty; flat extrapolation
+        # quadratic penalty; flat extrapolation
+        #
         # u(x)  = -0.5 lambda * ( gains - x0 )^2 + 0.5 * x0^2;   u(0)  = 0
         # u'(x) = - lambda (gains-x0);                           u'(1) = lambda x0 => x0 = 1/lmbda            
+        
         x0 = 1./lmbda            
         u  = tf.where( gains < x0, - 0.5 * lmbda * ( ( gains - x0 ) ** 2 ), 0. ) + 0.5 * (x0**2) - y
         d  = tf.where( gains < x0, - lmbda * (gains - x0), 0. ) 
                 
     elif utility in ["exp", "entropy"]:
-        # entropy.
-        # { 1 - exp(- lambda x ) } / lambda 
+        # Entropy
+        #   u(x) = { 1 - exp(- lambda x ) } / lambda 
+        #
+        # The OCE measure for this utility has the closed form
+        #   U(X) = - 1/lambda log E[ exp(-\lambda X) ]
+        #
+        # However, this tends to be numerically challenging.
         # we introcue a robust version less likely to explode
         inf = tf.stop_gradient( tf.reduce_min( gains ) )
         u = (1. - tf.math.exp( - lmbda * (gains-inf)) ) / lmbda - y + inf
         d = tf.math.exp(- lmbda * gains )
         
     elif utility == "exp2":
-        # Exponential for the positive axis, quadratic for the 
-        # negative axis
+        # Exponential for the positive axis, quadratic for the negative axis.
+        # A non-exploding version of the entropy
+        #
         # u1(x)  = { 1-exp(-lambda x) } / lambda; u1(0)  = 0 
         # u1'(x) = exp(-lambda x);                u1'(0) = 1       
         # u2(x)  = x - 0.5 lambda x^2;            u2(0)  = 0
@@ -213,9 +240,10 @@ def utility( utility : str, lmbda : float, X : tf.Tensor, y : tf.Tensor = 0. ) -
         
     elif utility == "vicky":
         # Vicky Handerson & Mark Rodgers
+        # https://warwick.ac.uk/fac/sci/statistics/staff/academic-research/henderson/publications/indifference_survey.pdf
+        #
         # u(x)  = { 1 + lambda * x - sqrt{ 1+lambda^2*x^2 } } / lmbda
         # u'(x) = 1 - lambda x / sqrt{1+lambda^2*x^2}
-        # https://warwick.ac.uk/fac/sci/statistics/staff/academic-research/henderson/publications/indifference_survey.pdf
         u = (1. + lmbda * gains - tf.math.sqrt( 1. + (lmbda * gains) ** 2 )) / lmbda  - y
         d = 1 - lmbda * gains / tf.math.sqrt( 1. + (lmbda * gains) ** 2)
         

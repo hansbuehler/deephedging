@@ -15,7 +15,7 @@ from cdxbasics.dynaplot import colors_tableau, figure
 from cdxbasics.util import uniqueHash
 from cdxbasics.subdir import SubDir, uniqueFileName48, CacheMode
     
-from .base import Logger, npCast, fmt_seconds, mean, err, tf, mean_bins, mean_cum_bins, perct_exp, Int, Float, fmt_big_number
+from .base import Logger, npCast, fmt_seconds, mean, err, tf, mean_bins, mean_cum_bins, perct_exp, Int, Float, fmt_big_number, fmt_list
 
 _log = Logger(__file__)
 
@@ -542,6 +542,16 @@ class NotebookMonitor(tf.keras.callbacks.Callback):
         
         # plotting
         self.plotter              = Plotter()
+
+        print("Network feature information:\n"\
+              " Features used by the agent:        %s\n"\
+              " Features available to the agent:   %s\n"\
+              " Features used by the utility:      %s\n"\
+              " Features available to the utility: %s" % \
+      ( fmt_list(gym.agent_features_used), fmt_list(gym.available_features_per_step), fmt_list(gym.utility_features_used), fmt_list(gym.available_features_per_path)) )
+
+        # restore training from cache
+        # ---------------------------
         
         # caching, config
         self.cache_dir        = config_caching("directory", "~/dh_cache", str, "If specified, will use the directory to store a persistence file for the model")
@@ -557,9 +567,6 @@ class NotebookMonitor(tf.keras.callbacks.Callback):
         self.cache_last_epoch = -1   # last restored or written epoch
         config_caching.done()
 
-        # restore training from cache
-        # ---------------------------
-        
         if not self.cache_mode.is_off:
             print("Caching enabled @ '%s'" %  self.full_cache_file)
             if self.cache_mode.delete:
