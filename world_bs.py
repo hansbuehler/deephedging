@@ -104,11 +104,11 @@ class SimpleWorld_BS(object):
         np.random.seed(seed)
 
         # black scholes parameters
-        drift      = config("drift", 0.1,       float, "Annualized real-life drift of the asset. Note that the risk-neutral drift is always zero")
+        drift      = config("drift", 0.,        float, "Annualized real-life drift of the asset. Note that the risk-neutral drift is always zero")
         vol        = config("vol",   0.2,       Float>=0., "Annualized volatility of the asset")
 
         # basic DH parameters
-        cost_s     = config("cost_s", 0.0002,   Float>=0., "Trading cost, as fractions of spot")
+        cost_s     = config("cost", 0.0002,     Float>=0., "Trading cost, as fractions of spot")
         ubnd_a     = config("ubnd_a", 5.,       Float>=0., "Upper bound for the number of shares traded at each time step")
         lbnd_a     = config("lbnd_a", -5.,      Float<=0., "Lower bound for the number of shares traded at each time step")
         _log.verify( ubnd_a - lbnd_a > 0., "'ubnd_a' (%g) must be bigger than 'lbnd_as' (%g)", ubnd_a, lbnd_a )
@@ -134,9 +134,12 @@ class SimpleWorld_BS(object):
         spot        = np.ones((nSamples,nSteps+1,))
         spot[:,1:]  = np.exp( np.cumsum(dlogS, axis=1) )
         hedges      = spot[:,-1][:,tf.newaxis] - spot[:,:-1] # DH_t :+ S(T) - S(t)
-        cost        = cost_s * spot[:,:-1]
+        hedges      = hedges[:,:,np.newaxis]
+        cost        = cost_s * spot[:,:-1][:,:,np.newaxis]
         time_left   = np.linspace(float(nSteps), 1., nSteps, endpoint=True) * dt
         sqrt_time_left = np.sqrt( time_left )
+        ubnd_a      = np.full(hedges.shape, ubnd_a)
+        lbnd_a      = np.full(hedges.shape, lbnd_a)
 
         # payoff
         # ------
@@ -174,7 +177,8 @@ class SimpleWorld_BS(object):
             per_step = pdct(
                 # both spot and option, if present
                 cost           = cost,            # trading cost
-                price          = spot[:-1],       # price of the hedge
+                spot           = spot[:,:-1],     # price of the hedge
+                price          = spot[:,:-1],     # price of the hedge
                 ubnd_a         = ubnd_a,          # bounds. Currently those are determinstic so don't use as features
                 lbnd_a         = lbnd_a,
                 time_left      = np.full( (nSamples, nSteps), time_left[np.newaxis,:] ),
@@ -189,9 +193,6 @@ class SimpleWorld_BS(object):
         # tf_data
         # what gym() gets
         
-        print(self.data.features)
-        print(self.data.market)
-        
         self.tf_data = tf_dict( 
             features = self.data.features,
             market   = self.data.market,
@@ -199,10 +200,19 @@ class SimpleWorld_BS(object):
     
         # diagnostics
         # variables for visualization, but not available for the agent
+        # TODO: remov dependency on this by plotting
         self.diagnostics = pdct(
             spot_all = spot, # [nSamples,nSteps+1] spots including spot at T
+            per_step = pdct(
+                spot1     = spot[:,:nSteps+1], # spot S0...Sm e.g. spot including spot at maturity
+                ),
+            per_path = pdct(
+                spot_ret  = spot[:,nSteps] / spot[:,0] - 1, # terminal spot return Sm/S0-1
+                spotT     = spot[:,nSteps]                 # terminal spot
+                )
             )
-
+    
+    
         # check numerics
         assert_iter_not_is_nan( self.diagnostics, "diagnostics" )
         

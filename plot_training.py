@@ -599,7 +599,7 @@ class NotebookMonitor(tf.keras.callbacks.Callback):
         self.data.time0            = time.time()
         self.data.time_last        = self.cache_last_epoch    
         if self.cache_epoch_off >= epochs:
-            print( "Nothing to do: cached model loaded from %s represents a trained model up to %ld epochs (you have asked to train for %ld epochs).\n"\
+            print( "Nothing to do: cached model loaded from %s represents a trained model up to %ld epochs (you have asked to train for %ld epochs). "\
                    "Raise number of epochs or turn off caching to re-start training.\n\nPlotting results for the trained model.\n" % \
                    ( self.full_cache_file, self.cache_epoch_off, epochs ) )
         else:
