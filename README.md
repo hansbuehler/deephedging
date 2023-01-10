@@ -20,18 +20,19 @@ The Deep Hedging problem for a horizon $T$ hedged over $M$ time steps with $N$ h
 
 $$
  \sup_a:\ \mathrm{E}\left[\ 
-    Z_T + \sum_{t=0}^{T-1} a(s_t) DH_t + \gamma_t  | a(s_t) |
+    Z_T + \sum_{t=0}^{T-1} a(s_t) \cdot DH_t + \gamma_t \cdot | a(s_t) H_t |
  \ \right] \ .
 $$
 
 Here
 * $s_t$ is the *state* of the market; in other words it is a vector of $t$-observable variables which are fed as parameters into our action network $a$.
-* $DH_t:=H_{T'} - H_t$ denotes the vector of returns of the $M$ hedging instruments $H$ available at $t$ from $t$ to our maximum expiry $T'>=T$. The expiry time $T'$ is set such that all hedging instruments are expired by that time.
-
+* $H_t$ is the vector of market mid-price of the $N$ hedging instruments available at $t$.
+* $\gamma_t$ is the vector of proportional transaction cost.
+* $DH_t$ denotes the vector of returns holding the $N$ hedging instruments available at time $t$ until some maximum expiry $T'\geq T$. 
     * If the $i$<b></b>th hedging instrument is spot $S$, then  $DH^{i}_t = S_T - S_t$ is simply the return of the equity from $t$ to $T$.
     * If the $i$<b></b>th instrument is an option $X$ with expiry $\tau$ then in the current implementation uses $DH^{i}_t = X_\tau - V_t$ where $V$ is the market price at $t$ and where $X_\tau$ is the option's payoff at maturity. The maturity $T'$ is the maximum off all maturities of all hedging instruments.
+    An alternative would be to use $DH^{i}_t := V_T - V_t$, e.g. using the market mid-price at time $T$ for the return calculation whenever $\tau> T$.
 
-* $\gamma_t$ represents the vector of proportional transaction cost.
 * $U$ is a _monetary utility_ which can be thought of as a risk-adjusted return.
 A classic example is the entropy, given by $U(X) := - \frac1\lambda \log\ \mathrm{E}\left[\ \exp(-\lambda X) \right] $. The code base supports a number of utility-based monetary utilities which can be found in the
 file `objectives.py`.
