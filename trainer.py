@@ -110,7 +110,7 @@ def train(  gym,
     to support warm starting. Will at some point redesign this architecture to create cleaner delineation of data, caching, 
     and visualization (at the very least to support multi-processing training)
     """
-    tf.debugging.disable_check_numerics()
+    tf.debugging.enable_check_numerics()
     
     optimzier        = config.train("optimizer",  "RMSprop", help="Optimizer" )
     batch_size       = config.train("batch_size",  None, help="Batch size")

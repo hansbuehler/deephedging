@@ -557,11 +557,12 @@ class NotebookMonitor(tf.keras.callbacks.Callback):
         self.cache_dir        = config_caching("directory", "~/dh_cache", str, "If specified, will use the directory to store a persistence file for the model")
         self.cache_mode       = config_caching("mode", CacheMode.ON, CacheMode.MODES, "Caching strategy: %s" % CacheMode.HELP)
         self.cache_freq       = config_caching("epoch_freq", 10, Int>0, "How often to cache results, in number of epochs")
+        cache_file_name       = config_caching("debug_file_name", None, help="Allows overwriting the filename for debugging an explicit cached state")
 
         self.cache_mode       = CacheMode( self.cache_mode )
         self.cache_dir        = SubDir(self.cache_dir, "!")
         optimizer_id          = uniqueHash( tf.keras.optimizers.serialize( gym.optimizer ) )
-        self.cache_file       = uniqueFileName48( gym.unique_id, optimizer_id, world.unique_id, val_world.unique_id )
+        self.cache_file       = uniqueFileName48( gym.unique_id, optimizer_id, world.unique_id, val_world.unique_id ) if cache_file_name is None else cache_file_name
         self.full_cache_file  = self.cache_dir.fullKeyName( self.cache_file )
         self.cache_epoch_off  = 0    # how many epochs have been restored from cache, if any
         self.cache_last_epoch = -1   # last restored or written epoch
