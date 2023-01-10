@@ -382,13 +382,14 @@ class SimpleWorld_Spot_ATM(object):
         # variables for visualization, but not available for the agent
         # TODO: is this really useful...?
         self.diagnostics = pdct(
+            spot_all = spot, # [nSamples,nSteps+1] spots including spot at T
             per_step = pdct(
                 drift     = rdrift,            # drift fora this interval
                 rvol      = rvol,              # realized vol for this interval
                 spot1     = spot[:,:nSteps+1], # spot S0...Sm e.g. spot including spot at maturity
                 ),
             per_path = pdct(
-                spot_ret  = spot[:,nSteps] / spot[:,0] - 1, # terminal spot return Sm/S0-1
+                spot_ret  = spot[:,nSteps] / spot[:,0] - 1, # terminal spot return Sm/S0-1   # TODO remove ... this is not reall 'per_path'
                 spotT     = spot[:,nSteps]                 # terminal spot
                 )
             )

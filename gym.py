@@ -48,7 +48,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         seed                       = config.tensorflow("seed", 423423423, int, "Set tensor random seed. Leave to None if not desired.")
         self.hard_clip             = config.environment('hard_clip', False, bool, "Use min/max instread of soft clip for limiting actions by their bounds")
         self.outer_clip            = config.environment('outer_clip', True, bool, "Apply a hard clip 'outer_clip_cut_off' times the boundaries")
-        self.outer_clip_cut_off    = config.environment('outer_clip_cut_off', 100., Float>=1., "Multiplier on bounds for outer_clip")
+        self.outer_clip_cut_off    = config.environment('outer_clip_cut_off', 10., Float>=1., "Multiplier on bounds for outer_clip")
         hinge_softness             = config.environment('softclip_hinge_softness', 1., Float>0., "Specifies softness of bounding actions between lbnd_a and ubnd_a")
         self.softclip              = tfp.bijectors.SoftClip( low=0., high=1., hinge_softness=hinge_softness, name='soft_clip' )
         self.config_agent          = config.agent.detach()
