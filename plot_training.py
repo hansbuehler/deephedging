@@ -491,17 +491,17 @@ class Plotter(object):
         spot_ret             = world.details.spot_all[:,-1] / world.details.spot_all[:,0] - 1.
         val_spot_ret         = val_world.details.spot_all[:,-1] / val_world.details.spot_all[:,0] - 1.
         
-        adjusted_full_gains  = monitor.full_result.gains - mean(monitor.P, monitor.full_result.utility)
-        adjusted_full_hedge  = (monitor.full_result.gains - monitor.full_result.payoff) - mean(monitor.P, monitor.full_result.utility)
+        adjusted_full_gains  = monitor.full_result.gains  - mean(monitor.P, monitor.full_result.utility)
         adjusted_full_payoff = monitor.full_result.payoff - mean(monitor.P, monitor.full_result.utility0)
+        adjusted_full_hedge  = adjusted_full_gains - adjusted_full_payoff
         self.plot_returns_by_spot_adj_ret.update( P=monitor.P, gains=adjusted_full_gains, hedge=adjusted_full_hedge, payoff=adjusted_full_payoff, spot_ret=spot_ret )
         self.plot_returns_by_spot_ret.update( P=monitor.P, gains=monitor.full_result.gains, hedge=monitor.full_result.gains - monitor.full_result.payoff, payoff=monitor.full_result.payoff, spot_ret=spot_ret )
         self.plot_utility_by_cumpercentile.update( P=monitor.P, utility=monitor.full_result.utility, utility0=monitor.full_result.utility0 )
         
         # by performance - validation
-        adjusted_val_gains  = monitor.val_result.gains - mean(monitor.val_P, monitor.val_result.utility)
-        adjusted_val_hedge  = (monitor.val_result.gains - monitor.val_result.payoff) - mean(monitor.val_P, monitor.val_result.utility)
+        adjusted_val_gains  = monitor.val_result.gains  - mean(monitor.val_P, monitor.val_result.utility)
         adjusted_val_payoff = monitor.val_result.payoff - mean(monitor.val_P, monitor.val_result.utility0)
+        adjusted_val_hedge  = adjusted_val_gains - adjusted_val_payoff
         self.val_plot_returns_by_spot_adj_ret.update( P=monitor.val_P, gains=adjusted_val_gains, hedge=adjusted_val_hedge, payoff=adjusted_val_payoff, spot_ret=val_spot_ret)
         self.val_plot_returns_by_spot_ret.update( P=monitor.val_P, gains=monitor.val_result.gains, hedge=monitor.val_result.gains - monitor.val_result.payoff, payoff=monitor.val_result.payoff, spot_ret=val_spot_ret )
         self.val_plot_utility_by_cumpercentile.update( P=monitor.val_P, utility=monitor.val_result.utility, utility0=monitor.val_result.utility0 )
