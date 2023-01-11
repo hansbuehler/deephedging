@@ -638,7 +638,7 @@ class NotebookMonitor(tf.keras.callbacks.Callback):
         # ---------------------------
         
         # caching, config
-        self.cache_dir        = config_caching("directory", "~/dh_cache", str, "If specified, will use the directory to store a persistence file for the model")
+        self.cache_dir        = config_caching("directory", "./.deephedging_cache", str, "If specified, will use the directory to store a persistence file for the model")
         self.cache_mode       = config_caching("mode", CacheMode.ON, CacheMode.MODES, "Caching strategy: %s" % CacheMode.HELP)
         self.cache_freq       = config_caching("epoch_freq", 10, Int>0, "How often to cache results, in number of epochs")
         cache_file_name       = config_caching("debug_file_name", None, help="Allows overwriting the filename for debugging an explicit cached state")
