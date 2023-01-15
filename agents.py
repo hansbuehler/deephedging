@@ -55,28 +55,30 @@ class SimpleDenseAgent(tf.keras.layers.Layer):
                 dtype
         """
         tf.keras.layers.Layer.__init__(self, name=name, dtype=dtype )
-        features           = config("features", self.Default_features_per_step, list, help="Named features for the agent to use")
-        self.nStates       = config("recurrence", 0, Int>=0, "Number of recurrent states. Set to zero to turn off recurrence")
+        features                = config("features", self.Default_features_per_step, list, help="Named features for the agent to use")
+        self.nStates            = config("recurrence", 0, Int>=0, "Number of recurrent states. Set to zero to turn off recurrence")
         if self.nStates > 0:
             features.append( self.State_Feature_Name )
-        self.nInst         = int(nInst)
-        self.layer         = DenseLayer( features=features, nOutput=self.nInst+self.nStates, config=config.network, name=name+"_dense", dtype=dtype )
-        self.init_state    = VariableLayer( (self.nStates,), name=name+"_initial_state" if not name is None else None, dtype=dtype ) if self.nStates > 0 else None
+            features = sorted(features)
+        self.state_feature_name = self.State_Feature_Name if self.nStates > 0 else None
+        self.nInst              = int(nInst)
+        self.layer              = DenseLayer( features=features, nOutput=self.nInst+self.nStates, config=config.network, name=name+"_dense", dtype=dtype )
+        self.init_state         = VariableLayer( (self.nStates,), name=name+"_initial_state" if not name is None else None, dtype=dtype ) if self.nStates > 0 else None
         config.done() # all config read
         
     def call( self, all_features : dict, training : bool = False ) -> tuple:
         """
         Compute next action, and recurrent state.
         Function returns:
-            ( tf.Tensor, dict )
+            ( tf.Tensor, tf.Tensor )
             
         Where:
             tf.Tensor: is the next action
-            dict: is a dictionary which is to be merged with the feature space for the next call of this layer
+            tf.Tensor: is the next state; or None
         """
         # if the mode is not recurrent -> just return next action
         if self.nStates == 0:
-            return self.layer(all_features, training=training), {}
+            return self.layer(all_features, training=training), None
         
         # if the model is recurrent, handle recurrent state
         if not self.State_Feature_Name in all_features:
@@ -91,10 +93,15 @@ class SimpleDenseAgent(tf.keras.layers.Layer):
             all_features[self.State_Feature_Name] = init_state
         
         action_state = self.layer(all_features, training=training)
-        return action_state[:,:self.nInst], { self.State_Feature_Name : action_state[:,self.nInst:] }
+        return action_state[:,:self.nInst], action_state[:,self.nInst:]
 
     @property
+    def is_recurrent(self):
+        """ Determines whether the current agent is recurrent, and has a 'state' """
+        return not self.init_state is None
+    @property
     def nFeatures(self): # NOQA
+        """ Number of features used by the agent """
         return self.layer.nFeatures     
     @property
     def features(self):

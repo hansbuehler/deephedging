@@ -223,8 +223,6 @@ def plot_blackscholes( world, gym, config, strike : float = 1., iscall : bool = 
         plt.set_title("Delta %g days" % (t*255))
         if j == 1:
             plt.legend()
-    
-    
 
     # bin pnl
     ixs        = np.argsort( spotT )            
@@ -279,7 +277,7 @@ def plot_blackscholes( world, gym, config, strike : float = 1., iscall : bool = 
     fig_path.close()
         
 
-    
+"""
     plt_termpayoff = fig_any.add_subplot()
     plt_termpayoff.set_title("Effective Terminal Payoffs")
     plt_terminal = fig_any.add_subplot()
@@ -422,6 +420,5 @@ def plot_blackscholes( world, gym, config, strike : float = 1., iscall : bool = 
     
     fig_path.render()
     fig_path.close()
-        
-
+"""
     

@@ -19,9 +19,10 @@ class VariableLayer(tf.keras.layers.Layer):
     
     def __init__(self, init, trainable : bool = True, name : str = None, dtype : tf.DType = dh_dtype ):
         """
-        Initialized the variable
+        Initializes the variable
 
-        Args:
+        Parameters
+        ----------
             init : 
                 If a float, a numpy array, or a tensor, then this is the initial value of the variable
                 If this is a tuple, a tensorshape, or a numpyshape then this will be the shape of the variable.
@@ -99,8 +100,8 @@ class DenseLayer(tf.keras.layers.Layer):
         Keras layer builld() function.
         'shapes' must be a dictionary
         """
-        _log.verify( self.features is None or isinstance(shapes, Mapping), "'shapes' must be a dictionary type if 'features' are specified. Found type %s", type(shapes ))
         assert self.nFeatures is None and self.model is None, ("build() called twice")
+        _log.verify( self.features is None or isinstance(shapes, Mapping), "'shapes' must be a dictionary type if 'features' are specified. Found type %s", type(shapes ))
         
         # collect features
         self.nFeatures = 0

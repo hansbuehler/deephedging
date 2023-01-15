@@ -6,7 +6,7 @@ Training environment for deep hedging.
 June 30, 2022
 @author: hansbuehler
 """
-from .base import Logger, Config, tf, tfp, dh_dtype, pdct, tf_back_flatten, tf_make_dim, Int, Float
+from .base import Logger, Config, tf, tfp, dh_dtype, pdct, tf_back_flatten, tf_make_dim, Int, Float, tfCast
 from .agents import AgentFactory
 from .objectives import MonetaryUtility
 from collections.abc import Mapping
@@ -113,6 +113,10 @@ class VanillaDeepHedgingGym(tf.keras.Model):
                 actions:         (,M,N) actions, per step, per path
                 deltas:          (,M,N) deltas, per step, per path
         """
+        return self._call( tfCast(data), training )
+    @tf.function  
+    def _call( self, data : dict, training : bool ) -> dict:
+        """ The _call function was introduced to allow conversion of numpy arrays into tensors ahead of tf.function tracing """
         _log.verify( isinstance(data, Mapping), "'data' must be a dictionary type. Found type %s", type(data ))
         assert not self.agent is None and not self.utility is None, "build() not called"
         
@@ -145,36 +149,45 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         # main loop
         # ---------
 
-        pnl     = tf.zeros_like(payoff)
-        cost    = tf.zeros_like(payoff)
-        delta   = tf.zeros_like(trading_cost[:,0,:])
-        action  = tf.zeros_like(trading_cost[:,0,:])
-        actions = []
-        deltas  = []        
-        state   = {}    # 2.0: support for recurrent models
-
-        for j in range(nSteps):
+        pnl     = tf.zeros_like(payoff, dtype=dh_dtype)                                                       # [?,]
+        cost    = tf.zeros_like(payoff, dtype=dh_dtype)                                                       # [?,]
+        delta   = tf.zeros_like(trading_cost[:,0,:], dtype=dh_dtype)                                          # [?,nInst]
+        action  = tf.zeros_like(trading_cost[:,0,:], dtype=dh_dtype)                                          # [?,nInst]
+        actions = tf.zeros_like(trading_cost[:,0,:][:,tf.newaxis,:], dtype=dh_dtype)                          # [?,0,nInst]
+        state   = self.agent.init_state({},training=training) if self.agent.is_recurrent else None
+        state   = pnl[:,tf.newaxis]*0. + state[tf.newaxis,:] if not state is None else tf.zeros_like(pnl)     # [?,nStates] if states are used; [?] else
+        
+        t       = 0
+        while tf.less(t,nSteps): # logically equivalent to: for t in range(nSteps):
+            tf.autograph.experimental.set_loop_options( shape_invariants=[(actions, tf.TensorShape([None,None,nInst]))] )
+            
             # build features, including recurrent state
             live_features = dict( action=action, delta=delta, cost=cost, pnl=pnl )
             live_features.update( { f:features_per_path[f] for f in features_per_path } )
-            live_features.update( { f:features_per_step[f][:,j,:] for f in features_per_step})
+            live_features.update( { f:features_per_step[f][:,t,:] for f in features_per_step})
             live_features['delta'] = delta
             live_features['action'] = action
-            live_features.update( state )
+            if self.agent.is_recurrent: live_features[ self.agent.state_feature_name ] = state
 
             # action
-            action, state  =  self.agent( live_features, training=training )
-            _log.verify( action.shape.as_list() in [ [nBatch, nInst], [nInst] ], "Error: action: expected shape %s, found %s", [nBatch, nInst], action.shape.as_list() )
+            action, state_ =  self.agent( live_features, training=training )
+            _log.verify( action.shape.as_list() in [ [nBatch, nInst], [1, nInst] ], "Error: action: expected shape %s or %s, found %s", [nBatch, nInst], [1,nInst], action.shape.as_list() )
             action         =  action if len(action.shape) == 2 else action[tf.newaxis,:]
-            action         =  self._clip_actions(action, lbnd_a[:,j,:], ubnd_a[:,j,:] )
-            delta          =  delta + action
+            action         =  self._clip_actions(action, lbnd_a[:,t,:], ubnd_a[:,t,:] )
+            state          =  state_ if self.agent.is_recurrent else state
+            delta          += action
+
+            # record actions per path, per step
+            action_        =  tf.stop_gradient( action )[:,tf.newaxis,:]
+            actions        =  tf.concat( [actions,action_], axis=1 ) if t>0 else action_
             
             # trade
-            cost           += tf.reduce_sum( tf.math.abs( action ) * trading_cost[:,j,:], axis=1 )
-            pnl            += tf.reduce_sum( action * hedges[:,j,:], axis=1 )
+            cost           += tf.reduce_sum( tf.math.abs( action ) * trading_cost[:,t,:], axis=1 )
+            pnl            += tf.reduce_sum( action * hedges[:,t,:], axis=1 )
             
-            actions.append( tf.stop_gradient( action )[:,tf.newaxis,:] )
-            deltas.append( tf.stop_gradient( delta )[:,tf.newaxis,:] )
+            
+            # iterate 
+            t              += 1
 
         pnl  = tf.debugging.check_numerics(pnl, "Numerical error computing pnl in %s. Turn on tf.enable_check_numerics to find the root cause. Note that they are disabled in trainer.py" % __file__ )
         cost = tf.debugging.check_numerics(cost, "Numerical error computing cost in %s. Turn on tf.enable_check_numerics to find the root cause. Note that they are disabled in trainer.py" % __file__ )
@@ -205,8 +218,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             payoff   = tf.stop_gradient( payoff ),                # [?,]
             pnl      = tf.stop_gradient( pnl ),                   # [?,]
             cost     = tf.stop_gradient( cost ),                  # [?,]
-            actions  = tf.concat( actions, axis=1 ),              # [?,nSteps,nInst]
-            deltas   = tf.concat( deltas, axis=1 )                # [?,nSteps,nInst]
+            actions  = tf.concat( actions, axis=1 )               # [?,nSteps,nInst]
         )
         
     # -------------------
@@ -321,12 +333,10 @@ class VanillaDeepHedgingGym(tf.keras.Model):
                      opt_weights   = self.optimizer.get_weights()
                    )
                 
-    def restore_from_cache( self, cache, world ) -> bool:
+    def restore_from_cache( self, cache ) -> bool:
         """
         Restore 'self' from cache.
         Note that we have to call() this object before being able to use this function
-        
-        TODO remove world
         
         This function returns False if the cached weights do not match the current architecture.
         """        
@@ -355,7 +365,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         try:
             self.set_weights( gym_weights )
         except ValueError as v:
-            _log.warn( "Cache restoration error: provided cache gym weights were not compatible with the gym")
+            _log.warn( "Cache restoration error: provided cache gym weights were not compatible with the gym.\n%s", v)
             return False
         return True
     
@@ -364,7 +374,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         try:
             self.optimizer.set_weights( opt_weights )
         except ValueError as v:
-            _log.warn( "Cache restoration error: cached optimizer weights were not compatible with existing optimizer. Check restore_from_cache(): there is code which you can enable to try rectify this.")
+            _log.warn( "Cache restoration error: cached optimizer weights were not compatible with existing optimizer. Check restore_from_cache(): there is code which you can enable to try rectify this.\n%s", v)
             return False
         return True
 
