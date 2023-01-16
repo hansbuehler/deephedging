@@ -1,5 +1,5 @@
 
-from deephedging.base import npCast, perct_exp
+from deephedging.base import npCast, perct_exp, mean
 from cdxbasics.dynaplot import figure
 import numpy as np
 import math as math
@@ -25,6 +25,10 @@ def plot_blackscholes( world, gym, config, strike : float = 1., iscall : bool = 
     deltas  = np.cumsum( actions, axis=1 )
     dhpnl   = npCast( r.pnl )
     payoff  = npCast( r.payoff )
+
+    utility  = mean( world.sample_weights, npCast( r.utility ) )
+    utility0 = mean( world.sample_weights, npCast( r.utility0 ) )
+    dprice   = utility - utility0
     
     assert actions.shape == spot.shape, "Error: expected 'spots' and 'actions' to have same dimension. Found %s and %s" % (spot.shape,actions.shape)
     assert hedges.shape == spot.shape, "Error: expected 'spots' and 'hedges' to have same dimension. Found %s and %s" % (spot.shape,hedges.shape)
@@ -135,9 +139,9 @@ def plot_blackscholes( world, gym, config, strike : float = 1., iscall : bool = 
     
         # plot prices
         plt = fig_path.add_subplot()
-        plt.plot( bin_spot_t, bin_simpr_t, "-" if j>0 else "o", label="Model approximation", color=(0.,0,1))
-        plt.plot( bin_spot_t, bin_bsprc_t,  "-" if j>0 else "o", label="Black Scholes", color=(0.8,0.,0.))
-        plt.set_title("Payoff %g days" % (t*255))
+        plt.plot( bin_spot_t, bin_simpr_t,  "-" if j>0 else "o", label="Model approximation", color=(0.,0,1))
+        plt.plot( bin_spot_t, bin_bsprc_t - dprice,  "-" if j>0 else "o", label="Black Scholes", color=(0.8,0.,0.))
+        plt.set_title("-Payoff %g days" % (t*255))
         if j == 1:
             plt.legend()
 
@@ -188,11 +192,11 @@ def plot_blackscholes( world, gym, config, strike : float = 1., iscall : bool = 
     dx   = max_ - min_
     min_ -= dx*0.25
     max_ += dx*0.25
-
-    plt_termpayoff.plot( bin_spotT, -bin_payoff, "-", color="blue", label="-payoff")
-    plt_termpayoff.plot( bin_spotT, bin_eff,   "*-", color="orange", label="hedged pnl")
-    plt_termpayoff.plot( bin_spotT, bin_bseff,  "-",  color="green", label="bs hedged pnl")
-    plt_termpayoff.plot( bin_spotT, bin_dheff, ":", color="black", label="hedged pnl from DH")
+    
+    plt_termpayoff.plot( bin_spotT, bin_payoff, "-", color="blue", label="payoff")
+    plt_termpayoff.plot( bin_spotT, -bin_eff   -dprice,  "*-", color="orange", label="-model hedged pnl")
+    plt_termpayoff.plot( bin_spotT, -bin_bseff -dprice,  "-",  color="green", label="-bs hedged pnl")
+# deep hedging    plt_termpayoff.plot( bin_spotT, -bin_dheff -dprice,  ":",  color="black", label="-hedged pnl from DH")
     plt_termpayoff.legend()
     plt_termpayoff.set_ylim(min_,max_)
         
