@@ -196,7 +196,7 @@ def plot_blackscholes( world, gym, config, strike : float = 1., iscall : bool = 
     plt_termpayoff.plot( bin_spotT, bin_payoff, "-", color="blue", label="payoff")
     plt_termpayoff.plot( bin_spotT, -bin_eff   -dprice,  "*-", color="orange", label="-model hedged pnl")
     plt_termpayoff.plot( bin_spotT, -bin_bseff -dprice,  "-",  color="green", label="-bs hedged pnl")
-# deep hedging    plt_termpayoff.plot( bin_spotT, -bin_dheff -dprice,  ":",  color="black", label="-hedged pnl from DH")
+#deep hedging    plt_termpayoff.plot( bin_spotT, -bin_dheff -dprice,  ":",  color="black", label="-hedged pnl from DH")
     plt_termpayoff.legend()
     plt_termpayoff.set_ylim(min_,max_)
         
