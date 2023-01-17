@@ -9,7 +9,7 @@ June 30, 2022
 """
 
 #from .base import Logger, npCast, fmt_seconds, mean, err, tf, mean_bins, mean_cum_bins, perct_exp, Int, Float, fmt_big_number, fmt_list
-from .base import Logger, Config, tf, Int, Float, mean, err, npCast, fmt_list, fmt_big_number, fmt_seconds#NOQA
+from .base import Logger, Config, tf, Int, Float, mean, err, npCast, fmt_list, fmt_big_number, fmt_seconds, TF_VERSION#NOQA
 from .plot_training import Plotter
 from cdxbasics.prettydict import PrettyDict as pdct
 from cdxbasics.util import uniqueHash
@@ -18,12 +18,13 @@ from cdxbasics.subdir import SubDir, uniqueFileName48, CacheMode
 import time as time
 import numpy as np # NOQA
 import psutil as psutil
+import inspect as inspect
 
 _log = Logger(__file__)
 
-# -------------------------------------------------------
+# =========================================================================================
 # Monitor
-# -------------------------------------------------------
+# =========================================================================================
 
 class TrainingInfo(object):
     """ Information on the current training run """
@@ -304,10 +305,69 @@ class Monitor(tf.keras.callbacks.Callback):
 # =========================================================================================
 # training
 # =========================================================================================
+
+def create_optimizer( train_config : Config ):
+    """
+    Creates an optimizer from a config object
+    The keywords accepted are those documented for https://www.tensorflow.org/api_docs/python/tf/keras/optimizers
+    
+    You can use:
+        config.optimizer = "adam"
+        config.optimizer = tf.keras.optimizers.Adam(learning_rate = 0.01)
+        
+    Or the new form for TF2.11 optimizers
+    
+    """    
+    # legacy 1.0 support
+    if 'optimizer' in train_config:
+        return train_config("optimizer", "RMSprop", help="Optimizer" )
+
+    # new version. Specify optimizer.name
+    config    = train_config.optimizer
+    name      = config("name", "adam", str, "Optimizer name. See https://www.tensorflow.org/api_docs/python/tf/keras/optimizers")
+
+    # auto-detect valid parameters
+    optimizer = tf.keras.optimizers.get(name)
+    sig_opt   = inspect.signature(optimizer.__init__)
+    classname = optimizer.__class__
+    kwargs    = {}
+    
+    # all parameters requested by the optimizer class
+    for para in sig_opt.parameters:
+        if para in ['self','name','kwargs']:
+            continue
+        default = sig_opt.parameters[para].default
+        if default == inspect.Parameter.empty:
+            # mandatory parameter
+            kwargs[para] = config(para, help="Parameter %s for %s" % (para,classname))
+        else:
+            # optional parameter
+            kwargs[para] = config(para, default, help="Parameter %s for %s" % (para,classname))
+
+    # The following parameters are understood by general tensorflow optimziers
+    hard_coded = dict(  clipnorm=None,
+                        clipvalue=None,
+                        global_clipnorm=None )
+    if TF_VERSION >= 211:
+        hard_coded.update(
+                        use_ema=False,
+                        ema_momentum=0.99,
+                        ema_overwrite_frequency=None)
+    for k in hard_coded:
+        if k in kwargs:
+            continue  # handled already
+        v = hard_coded[k]
+        kwargs[k] = config(k, v, help="Parameter %s for keras optimizers" % k)
+    
+    config.done()
+    return optimizer.__class__(**kwargs)
+    
     
 def default_loss( y_true,y_pred ):     
     """ Default loss: ignore y_true """
     return y_pred
+
+# =========================================================================================
 
 def train(  gym,
             world,
@@ -344,11 +404,11 @@ def train(  gym,
     output_level     = config("output_level", "all", ['quiet', 'text', 'all'], "What to print during training")
 
     # training parameters    
-    optimzier        = config.train("optimizer",  "RMSprop", help="Optimizer" )
     batch_size       = config.train("batch_size",  None, help="Batch size")
     epochs           = config.train("epochs",      100, Int>0, help="Epochs")
     run_eagerly      = config.train("run_eagerly", False, help="Keras model run_eagerly. Turn to True for debugging. This slows down training. Use None for default.")
     learning_rate    = config.train("learing_rate", None, help="Manually set the learning rate of the optimizer")
+    optimzier        = create_optimizer(config.train)
     
     # tensorboard: have not been able to use it .. good luck.
     tboard_log_dir   = config.train.tensor_board(   "log_dir", "", str, "Specify tensor board log directory")

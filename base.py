@@ -21,9 +21,9 @@ _log = Logger(__file__)
 # Manage tensor flow
 # -------------------------------------------------
 
-version = [ int(x) for x in tf.__version__.split(".") ]
-version = version[0]*100+version[1]
-_log.verify( version >= 203, "Tensor Flow version 2.3 required. Found %s", tf.__version__)
+TF_VERSION = [ int(x) for x in tf.__version__.split(".") ]
+TF_VERSION = TF_VERSION[0]*100+TF_VERSION[1]
+_log.verify( TF_VERSION >= 207, "Tensor Flow version 2.7 required. Found %s", tf.__version__)
 
 NUM_GPU = len(tf.config.list_physical_devices('GPU'))
 NUM_CPU = len(tf.config.list_physical_devices('CPU'))
@@ -372,6 +372,3 @@ def fmt_big_number( number : int ) -> str:
 
 
 
-    
-    
-    

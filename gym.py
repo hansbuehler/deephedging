@@ -325,7 +325,13 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         Create a dictionary which allows reconstructing the current model.
         """
         assert not self.agent is None, "build() not called yet"
-        opt_config = tf.keras.optimizers.serialize( self.optimizer ) if not self.optimizer is None else None
+        opt_config  = tf.keras.optimizers.serialize( self.optimizer ) if not self.optimizer is None else None
+        opt_weights = self.optimizer.get_weights() if not getattr(self.optimizer,"get_weights",None) is None else None        
+        if not opt_config is None and opt_weights is None:
+            # tensorflow 2.11 abandons 'get_weights'
+            variables   = self.optimizer.variables()        
+            opt_weights = [ np.array( v ) for v in variables ]
+        
         return dict( gym_uid       = self.unique_id,
                      gym_weights   = self.get_weights(),
                      opt_uid       = uniqueHash( opt_config ) if not opt_config is None else "",
@@ -374,41 +380,9 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         try:
             self.optimizer.set_weights( opt_weights )
         except ValueError as v:
-            _log.warn( "Cache restoration error: cached optimizer weights were not compatible with existing optimizer. Check restore_from_cache(): there is code which you can enable to try rectify this.\n%s", v)
+            isTF211 = getattr(self.optimizer,"get_weights",None) is None
+            isTF211 = "" if not isTF211 else "Code is running TensorFlow 2.11 or higher for which tf.keras.optimizers.Optimizer.get_weights() was retired. Current code is experimental. Review create_cache/restore_from_cache.\n"
+            _log.warn( "Cache restoration error: cached optimizer weights were not compatible with existing optimizer.\n%s%s", v)
             return False
         return True
 
-    """
-        # Optimzier
-        # If the optimizer has not been called yet, it does not have its internal weights set up.
-        # Does not seem to be an actual issue ...?
-
-        current_weights = self.optimizer.get_weights()
-        nOptWeights     = sum( [ np.asarray(w).size for w in opt_weights ] )
-        nCurrentWeights = sum( [ np.asarray(w).size for w in current_weights ] )
-        
-        if nOptWeights != nCurrentWeights:
-            _log.warn( "Cache restoration: number of cached weights for optimizer (%ld) does not match number of current weights (%ld). Attempting to train with existing optimier for one step", nOptWeights, nCurrentWeights)
-            self.fit(       x              = world.tf_data,
-                            y              = world.tf_y,
-                            batch_size     = len(y),
-                            sample_weight  = world.tf_sample_weights * float(world.nSamples),  # sample_weights are poorly handled in TF
-                            epochs         = 1,
-                            callbacks      = None,
-                            verbose        = 0 )
-
-            current_weights = self.optimizer.get_weights()
-            nCurrentWeights = sum( [ np.asarray(w).size for w in current_weights ] )
-            
-            if nCurrentWeights != nOptWeights:
-                _log.warn( "Cache restoration: could not recover from misaligned weight settings. Even after training, the optimizer has %ld weights vs %ld cached weights.", nCurrentWeights, nOptWeights)
-                return False
-            
-        try:
-            self.optimizer.set_weights( opt_weights )
-        except ValueError as v:
-            _log.warn( "Cache restoration error: cached optimizer weights were not compatible with existing optimizer")
-            return False
-        return True
-    """
-        
