@@ -19,6 +19,7 @@ import time as time
 import numpy as np # NOQA
 import psutil as psutil
 import inspect as inspect
+import os as os
 
 _log = Logger(__file__)
 
@@ -450,8 +451,9 @@ def train(  gym,
 
         tboard = None
         if tboard_log_dir != "":
-            t0            = time.time()
-            tboard        = tf.keras.callbacks.TensorBoard(log_dir=tboard_log_dir, histogram_freq=tboard_freq)
+            t0             = time.time()
+            tboard_log_dir = os.path.abspath(tboard_log_dir)
+            tboard         = tf.keras.callbacks.TensorBoard(log_dir=tboard_log_dir, histogram_freq=tboard_freq)
             if output_level != "quiet": print("TensorBoard log directory set to '%s'. Took %s" % (tboard_log_dir, fmt_seconds(time.time()-t0)))
 
         why_stopped = "Training complete"
