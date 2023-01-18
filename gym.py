@@ -158,7 +158,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         state   = pnl[:,tf.newaxis]*0. + state[tf.newaxis,:] if not state is None else tf.zeros_like(pnl)     # [?,nStates] if states are used; [?] else
         
         t       = 0
-        while tf.less(t,nSteps): # logically equivalent to: for t in range(nSteps):
+        while tf.less(t,nSteps, name="main_loop"): # logically equivalent to: for t in range(nSteps):
             tf.autograph.experimental.set_loop_options( shape_invariants=[(actions, tf.TensorShape([None,None,nInst]))] )
             
             # build features, including recurrent state
@@ -179,11 +179,11 @@ class VanillaDeepHedgingGym(tf.keras.Model):
 
             # record actions per path, per step
             action_        =  tf.stop_gradient( action )[:,tf.newaxis,:]
-            actions        =  tf.concat( [actions,action_], axis=1 ) if t>0 else action_
+            actions        =  tf.concat( [actions,action_], axis=1, name="actions") if t>0 else action_
             
             # trade
-            cost           += tf.reduce_sum( tf.math.abs( action ) * trading_cost[:,t,:], axis=1 )
-            pnl            += tf.reduce_sum( action * hedges[:,t,:], axis=1 )
+            cost           += tf.reduce_sum( tf.math.abs( action ) * trading_cost[:,t,:], axis=1, name="cost_t" )
+            pnl            += tf.reduce_sum( action * hedges[:,t,:], axis=1, name="pnl_t" )
             
             
             # iterate 
@@ -218,7 +218,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             payoff   = tf.stop_gradient( payoff ),                # [?,]
             pnl      = tf.stop_gradient( pnl ),                   # [?,]
             cost     = tf.stop_gradient( cost ),                  # [?,]
-            actions  = tf.concat( actions, axis=1 )               # [?,nSteps,nInst]
+            actions  = tf.concat( actions, axis=1, name="actions" ) # [?,nSteps,nInst]
         )
         
     # -------------------
@@ -236,8 +236,8 @@ class VanillaDeepHedgingGym(tf.keras.Model):
                 # hard clip
                 # this is recommended for debugging only.
                 # soft clipping should lead to smoother gradients
-                actions = tf.minimum( actions, ubnd_a )
-                actions = tf.maximum( actions, lbnd_a )
+                actions = tf.minimum( actions, ubnd_a, name="hard_clip_min" )
+                actions = tf.maximum( actions, lbnd_a, name="hard_clip_max" )
                 return actions            
 
             if self.outer_clip:
@@ -246,13 +246,13 @@ class VanillaDeepHedgingGym(tf.keras.Model):
                 # hard at 10 times the bounds.
                 # This can happen if an action has no effect
                 # on the gains process (e.g. hedge == 0)
-                actions = tf.minimum( actions, ubnd_a*self.outer_clip_cut_off )
-                actions = tf.maximum( actions, lbnd_a*self.outer_clip_cut_off )
+                actions = tf.minimum( actions, ubnd_a*self.outer_clip_cut_off, name="outer_clip_min" )
+                actions = tf.maximum( actions, lbnd_a*self.outer_clip_cut_off, name="outer_clip_max" )
 
             dbnd = ubnd_a - lbnd_a
             rel  = ( actions - lbnd_a ) / dbnd
             rel  = self.softclip( rel )
-            act  = tf.where( dbnd > 0., rel *  dbnd + lbnd_a, 0. )
+            act  = tf.where( dbnd > 0., rel *  dbnd + lbnd_a, 0., name="soft_clipped_act" )
             act  = tf.debugging.check_numerics(act, "Numerical error clipping action in %s. Turn on tf.enable_check_numerics to find the root cause. Note that they are disabled in trainer.py" % __file__ )
             return act
 

@@ -413,7 +413,8 @@ def train(  gym,
     
     # tensorboard: have not been able to use it .. good luck.
     tboard_log_dir   = config.train.tensor_board(   "log_dir", "", str, "Specify tensor board log directory")
-    tboard_freq      = config.train.tensor_board(   "hist_freq", 1, Int>0, "Specify tensor board log frequency")
+    tboard_freq      = config.train.tensor_board(   "hist_freq", 1, Int>0, "Specify tensor board log frequency") 
+    tboard_prf_batch = config.train.tensor_board(   "profile_batch", 0, Int>0, "Batch used for profiling. Set to non-zero to activate profiling") 
     
     t0               = time.time()
     result0          = gym(world.tf_data)   # builds the model
@@ -452,8 +453,8 @@ def train(  gym,
         tboard = None
         if tboard_log_dir != "":
             t0             = time.time()
-            tboard_log_dir = os.path.abspath(tboard_log_dir)
-            tboard         = tf.keras.callbacks.TensorBoard(log_dir=tboard_log_dir, histogram_freq=tboard_freq)
+            tboard_log_dir = SubDir(tboard_log_dir).path
+            tboard         = tf.keras.callbacks.TensorBoard(log_dir=tboard_log_dir, histogram_freq=tboard_freq, profile_batch=tboard_prf_batch )
             if output_level != "quiet": print("TensorBoard log directory set to '%s'. Took %s" % (tboard_log_dir, fmt_seconds(time.time()-t0)))
 
         why_stopped = "Training complete"
