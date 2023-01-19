@@ -399,11 +399,11 @@ def train(  gym,
     to support warm starting. Will at some point redesign this architecture to create cleaner delineation of data, caching, 
     and visualization (at the very least to support multi-processing training)
     """
-    tf.debugging.enable_check_numerics()
     
     # how much to print
     output_level     = config("output_level", "all", ['quiet', 'text', 'all'], "What to print during training")
-
+    debug_numerics   = config.debug("check_numerics", False, bool, "Whether to check numerics.")
+    
     # training parameters    
     batch_size       = config.train("batch_size",  None, help="Batch size")
     epochs           = config.train("epochs",      100, Int>0, help="Epochs")
@@ -415,6 +415,9 @@ def train(  gym,
     tboard_log_dir   = config.train.tensor_board(   "log_dir", "", str, "Specify tensor board log directory")
     tboard_freq      = config.train.tensor_board(   "hist_freq", 1, Int>0, "Specify tensor board log frequency") 
     tboard_prf_batch = config.train.tensor_board(   "profile_batch", 0, Int>0, "Batch used for profiling. Set to non-zero to activate profiling") 
+
+    # compile
+    # -------
     
     t0               = time.time()
     result0          = gym(world.tf_data)   # builds the model
@@ -425,7 +428,10 @@ def train(  gym,
     if not learning_rate is None:
         gym.optimizer.lr = float( learning_rate )
     if output_level != "quiet": print("Gym with %s trainable weights compiled and initialized. Took %s" % (fmt_big_number(gym.num_trainable_weights),fmt_seconds(time.time()-t0)))
-        
+    
+    # prepare tracking
+    # ----------------
+    
     t0               = time.time()
     training_info    = TrainingInfo( 
                                 batch_size     = batch_size,
@@ -442,6 +448,15 @@ def train(  gym,
     if output_level != "quiet": print("Training monitor initialized. Took %s" % fmt_seconds(time.time()-t0))
     config.done()
 
+    # train
+    # -----
+    
+    if debug_numerics:
+        tf.debugging.enable_check_numerics()
+        if output_level != "quiet": print("Enabled automated checking for numerical errors. This will slow down training. Use config.debug.check_numerics = False to turn this off")
+    else:
+        tf.debugging.disable_check_numerics()
+    
     t0               = time.time()
     if monitor.is_done:
         why_stopped = "Cached model already sufficiently trained"
