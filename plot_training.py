@@ -173,6 +173,7 @@ class Plot_Memory_By_Epoch(object): # NOQA
 
         first = self._min is None
         l     = len(process_info.memory_rss)
+        assert l <= len(self._x), "Internal error: %ld, %ld" % ( l, len(self._x) )
             
         if first:
             self.line_rss = self.ax.plot( self._x[:l], memory_rss, label="rss", color="blue" )[0]
@@ -473,7 +474,6 @@ class Plotter(object):
         """
         self.fig = None
         self.plot_graphs      = plot_graphs
-        self.time_refresh     = config("time_refresh", 20, Int>0, "Time refresh interval for visualizations" )
         self.epoch_refresh    = config("epoch_refresh", 10, Int>0, "Epoch fefresh frequency for visualizations" )        
         self.fig_row_size     = config.fig("row_size", 5, Int>0, "Plot size of a row")
         self.fig_col_size     = config.fig("col_size", 5, Int>0, "Plot size of a column")
