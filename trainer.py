@@ -414,7 +414,7 @@ def train(  gym,
     # tensorboard: have not been able to use it .. good luck.
     tboard_log_dir   = config.train.tensor_board(   "log_dir", "", str, "Specify tensor board log directory")
     tboard_freq      = config.train.tensor_board(   "hist_freq", 1, Int>0, "Specify tensor board log frequency") 
-    tboard_prf_batch = config.train.tensor_board(   "profile_batch", 0, Int>0, "Batch used for profiling. Set to non-zero to activate profiling") 
+    tboard_prf_batch = config.train.tensor_board(   "profile_batch", 0, Int>=0, "Batch used for profiling. Set to non-zero to activate profiling") 
 
     # compile
     # -------
