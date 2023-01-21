@@ -1,8 +1,11 @@
 
 from deephedging.base import npCast, perct_exp, mean
+from deephedging.trainer import train_utillity
 from cdxbasics.dynaplot import figure
+from cdxbasics.config import Config
 import numpy as np
 import math as math
+import tqdm as twdm
 from scipy.stats import norm
 
 def plot_blackscholes( world, gym, config, strike : float = 1., iscall : bool = True ):
@@ -21,6 +24,7 @@ def plot_blackscholes( world, gym, config, strike : float = 1., iscall : bool = 
     r       = gym(world.tf_data)
     spot    = world.details.spot_all[:,:-1]
     hedges  = world.data.market.hedges[:,:,0]
+    costs   = world.data.market.cost[:,:,0]
     actions = npCast( r.actions )[:,:,0]   # only one asset
     deltas  = np.cumsum( actions, axis=1 )
     dhpnl   = npCast( r.pnl )
@@ -69,7 +73,8 @@ def plot_blackscholes( world, gym, config, strike : float = 1., iscall : bool = 
     plt_termpayoff.set_title("Effective Terminal Payoffs")
     plt_terminal = fig_any.add_subplot()
     plt_terminal.set_title("Terminal Hedged Results")
-
+    plt_utility = fig_any.add_subplot()
+    plt_utility.set_title("Utility %s\n(higher is better)" % gym.utility.display_name)
     plt_spots = fig_any.add_subplot()
     plt_spots.set_title("Spot distribution in t")    
     plt_hedges = fig_any.add_subplot()
@@ -82,14 +87,18 @@ def plot_blackscholes( world, gym, config, strike : float = 1., iscall : bool = 
     last_delta = 0.
     last_bsdelta = 0.
     pnl = 0.
+    cost = 0.
     bspnl = 0.
+    bscost = 0.
     
+    print("Running strategies ...", end='')
     for j in range(time_steps):
     
         # sort by spot at j, and compute BS refernece
         spot_t    = spot[:,j]
         delta_t   = deltas[:,j]
         hedges_t  = hedges[:,j]
+        cost_t    = costs[:,j]
         t         = float(j) * dt
         res_t     = float(time_steps-j) * dt 
         
@@ -109,6 +118,8 @@ def plot_blackscholes( world, gym, config, strike : float = 1., iscall : bool = 
         bsact_t       = bsdelta_t - last_bsdelta
         pnl           = act_t * hedges_t + pnl
         bspnl         = bsact_t * hedges_t + bspnl
+        cost          = np.abs(act_t) * cost_t
+        bscost        = np.abs(bsact_t) * cost_t
         last_delta    = delta_t
         last_bsdelta  = bsdelta_t
         
@@ -153,6 +164,20 @@ def plot_blackscholes( world, gym, config, strike : float = 1., iscall : bool = 
         plt.set_title("Delta %g days" % (t*255))
         if j == 1:
             plt.legend()
+            
+    print("done")
+            
+    # compute terminal utility for BS
+    tconfig = Config()
+    tconfig.train.optimizer.name = "adam"
+    tconfig.train.batch_size = world.nSamples # full sample size
+    tconfig.train.epochs = 100
+    tconfig.train.tf_verbose = 0
+
+    print("Running tensorflow to compute utility of BS strategy ...", end='')
+    utilityBS = train_utillity( gym.utility, world, payoff = payoff, pnl = bspnl, cost = bscost, config=tconfig )
+    utilityBS = utilityBS[0]
+    print("done; result %g", utilityBS)
 
     # bin pnl
     ixs        = np.argsort( spotT )            
@@ -200,6 +225,10 @@ def plot_blackscholes( world, gym, config, strike : float = 1., iscall : bool = 
     plt_termpayoff.legend()
     plt_termpayoff.set_ylim(min_,max_)
         
+    plt_utility.bar( ['Unhedged','BS','DH'], [ utility0, utilityBS, utility ] )
+                
+    print("Rendering now. Stand by.")
+    
     fig_any.render()
     fig_any.close()
     

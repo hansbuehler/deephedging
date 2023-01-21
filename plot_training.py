@@ -54,26 +54,26 @@ class Plot_Loss_By_Epoch(object): # NOQA
         min_        = None
         max_        = None
         for loss, color in zip( losses, colors() ):
-            mean = np.array( losses[loss] )[show_epoch0:epoch+1]
+            losses_here = np.array( losses[loss] )[show_epoch0:epoch+1]
 
             if self.lines.get(loss,None) is None:
-                self.lines[loss] = self.ax.plot( x, mean, self._lines.get(loss,":"), label=loss, color=color )[0]
+                self.lines[loss] = self.ax.plot( x, losses_here, self._lines.get(loss,":"), label=loss, color=color )[0]
             else:
                 self.lines[loss].set_xdata( x )
-                self.lines[loss].set_ydata( mean )
+                self.lines[loss].set_ydata( losses_here )
 
             # std error
             if loss in loss_errs:
                 err_  = np.array( loss_errs[loss] )[show_epoch0:epoch+1] * self.err_dev
-                assert len(err_.shape) == 1 and err_.shape == mean.shape, "Error %s and %s" % (err_.shape, mean.shape)
+                assert len(err_.shape) == 1 and err_.shape == losses_here.shape, "Error %s and %s" % (err_.shape, losses_here.shape)
                 if loss in self.fills:
                     self.fills[loss].remove()
-                self.fills[loss] = self.ax.fill_between( x, y1=mean-err_, y2=mean+err_, color=color, alpha=self._alphas[loss] )
+                self.fills[loss] = self.ax.fill_between( x, y1=losses_here-err_, y2=losses_here+err_, color=color, alpha=self._alphas[loss] )
 
             # y min/max            
             if loss != "init":
-                min__ = min(mean[-self.lookback_window:])
-                max__ = max(mean[-self.lookback_window:])
+                min__ = min(losses_here[-self.lookback_window:])
+                max__ = max(losses_here[-self.lookback_window:])
                 if min_ is None or min_ > min__:
                     min_ = min__
                 if max_ is None or max_ < max__:
@@ -300,6 +300,7 @@ class Plot_Utility_By_CumPercentile(object): # NOQA
         
         self.bins   = bins
         self.line   = None
+        self.line2  = None
         self.ax     = fig.add_subplot()            
         self.ax.set_title("Utility by cummlative percentile\n(%s)" % set_name)
         self.ax.set_xlabel("Percentile")
@@ -317,19 +318,21 @@ class Plot_Utility_By_CumPercentile(object): # NOQA
         
         if self.line is None:
             self.line =  self.ax.plot( x, utility, label="gains" )[0]
-            self.ax.plot( x, utility0, ":", label="payoff" )
+            self.line2 =  self.ax.plot( [x[-1]], [utility[-1]], "*", color=color_gains )[0]
+            self.ax.plot( x, utility0, "-", label="payoff" )
             self.ax.plot( x, utility0*0., ":", color="black" )
             self.ax.legend()
             self.ax.set_xlim( 0.-0.1, 1.+0.1 )
         else:
             self.line.set_ydata( utility )
+            self.line2.set_ydata( [utility[-1]] )
 
         min_ = min( np.min(utility), np.min(utility0) )
         max_ = max( np.max(utility), np.max(utility0) )
         if min_ >= max_-0.00001:
             min_ -= 0.0001
             max_ += 0.0001
-        #self.ax.set_ylim(min_,max_)            
+        self.ax.set_ylim(min_,max_)            
 
 # -------------------------------------------------------
 # Show hedges by spot
@@ -515,8 +518,8 @@ class Plotter(object):
                 # by epoch
                 self.plot_loss_by_epoch           = Plot_Loss_By_Epoch(    fig=self.fig, title="Losses (recent)", epochs=training_info.epochs, err_dev=self.err_dev, lookback_window=self.lookback_window, show_epochs=self.show_epochs )
                 self.plot_loss_by_epoch_all       = Plot_Loss_By_Epoch(    fig=self.fig, title="Losses (all)", epochs=training_info.epochs, err_dev=self.err_dev, lookback_window=self.lookback_window, show_epochs=training_info.epochs )
-                self.plot_gains_utility_by_epoch  = Plot_Utility_By_Epoch( fig=self.fig, name="Gains", err_dev=self.err_dev, epochs=training_info.epochs, lookback_window=self.lookback_window, show_epochs=self.show_epochs )
-                self.plot_payoff_utility_by_epoch = Plot_Utility_By_Epoch( fig=self.fig, name="Payoff", err_dev=self.err_dev, epochs=training_info.epochs, lookback_window=self.lookback_window, show_epochs=self.show_epochs )
+                self.plot_gains_utility_by_epoch  = Plot_Utility_By_Epoch( fig=self.fig, name="Model Gains", err_dev=self.err_dev, epochs=training_info.epochs, lookback_window=self.lookback_window, show_epochs=self.show_epochs )
+                self.plot_payoff_utility_by_epoch = Plot_Utility_By_Epoch( fig=self.fig, name="Original Payoff", err_dev=self.err_dev, epochs=training_info.epochs, lookback_window=self.lookback_window, show_epochs=self.show_epochs )
                 self.plot_memory_by_epoch         = Plot_Memory_By_Epoch(  fig=self.fig, epochs=training_info.epochs )
     
                 self.fig.next_row()

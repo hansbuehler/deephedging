@@ -150,7 +150,7 @@ class SimpleWorld_BS(object):
         elif isinstance(payoff_f, np.ndarray):
             _log.verify( payoff_f.shape == (nSamples,), "'payoff': if a numpy array is provided, it must have shape (samples,). Found %s while samples is %ld", payoff_f.shape, nSamples )
         else:
-            payoff    = payoff_f( spot[:,:nSteps] )
+            payoff    = payoff_f( spot[:,:nSteps+1] )
             payoff    = payoff[:,0] if payoff.shape == (nSamples,1) else payoff
             _log.verify( payoff.shape == (nSamples,), "'payoff' function which receives a vector of shape (nSamples,nSteps+1) must return a vector of size nSamples. Found shape %s. nSamples is %ld and nSteps is %ld", payoff.shape, nSamples, nSteps )
         

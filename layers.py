@@ -47,6 +47,10 @@ class VariableLayer(tf.keras.layers.Layer):
     @property
     def features(self) -> list: # NOQA
         return []
+    
+    @property
+    def nFeatures(self) -> int: #NOQA
+        return 0
 
 class DenseLayer(tf.keras.layers.Layer):
     """

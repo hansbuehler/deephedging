@@ -6,7 +6,7 @@ Training environment for deep hedging.
 June 30, 2022
 @author: hansbuehler
 """
-from .base import Logger, Config, tf, tfp, dh_dtype, pdct, tf_back_flatten, tf_make_dim, Int, Float, tfCast
+from .base import Logger, Config, tf, tfp, dh_dtype, pdct, tf_back_flatten, tf_make_dim, Int, Float, tfCast, create_optimizer
 from .agents import AgentFactory
 from .objectives import MonetaryUtility
 from collections.abc import Mapping
@@ -72,7 +72,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         _log.verify( isinstance(shapes, Mapping), "'shapes' must be a dictionary type. Found type %s", type(shapes ))
 
         nInst         = int( shapes['market']['hedges'][2] )
-        self.agent    = AgentFactory( nInst, self.config_agent, name="agent", dtype=self.dtype ) 
+        self.agent    = AgentFactory( nInst, self.config_agent, name="agent",    dtype=self.dtype ) 
         self.utility  = MonetaryUtility( self.config_objective, name="utility",  dtype=self.dtype ) 
         self.utility0 = MonetaryUtility( self.config_objective, name="utility0", dtype=self.dtype ) 
 
@@ -161,7 +161,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         while tf.less(t,nSteps, name="main_loop"): # logically equivalent to: for t in range(nSteps):
             tf.autograph.experimental.set_loop_options( shape_invariants=[(actions, tf.TensorShape([None,None,nInst]))] )
             
-            # build features, including recurrent state
+            # 1: build features, including recurrent state
             live_features = dict( action=action, delta=delta, cost=cost, pnl=pnl )
             live_features.update( { f:features_per_path[f] for f in features_per_path } )
             live_features.update( { f:features_per_step[f][:,t,:] for f in features_per_step})
@@ -169,7 +169,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             live_features['action'] = action
             if self.agent.is_recurrent: live_features[ self.agent.state_feature_name ] = state
 
-            # action
+            # 2: action
             action, state_ =  self.agent( live_features, training=training )
             _log.verify( action.shape.as_list() in [ [nBatch, nInst], [1, nInst] ], "Error: action: expected shape %s or %s, found %s", [nBatch, nInst], [1,nInst], action.shape.as_list() )
             action         =  action if len(action.shape) == 2 else action[tf.newaxis,:]
@@ -177,16 +177,13 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             state          =  state_ if self.agent.is_recurrent else state
             delta          += action
 
-            # record actions per path, per step
-            action_        =  tf.stop_gradient( action )[:,tf.newaxis,:]
-            actions        =  tf.concat( [actions,action_], axis=1, name="actions") if t>0 else action_
-            
-            # trade
+            # 3: trade
             cost           += tf.reduce_sum( tf.math.abs( action ) * trading_cost[:,t,:], axis=1, name="cost_t" )
             pnl            += tf.reduce_sum( action * hedges[:,t,:], axis=1, name="pnl_t" )
-            
-            
-            # iterate 
+
+            # 4: record actions per path, per step, continue loop
+            action_        =  tf.stop_gradient( action )[:,tf.newaxis,:]
+            actions        =  tf.concat( [actions,action_], axis=1, name="actions") if t>0 else action_
             t              += 1
 
         pnl  = tf.debugging.check_numerics(pnl, "Numerical error computing pnl in %s. Turn on tf.enable_check_numerics to find the root cause. Note that they are disabled in trainer.py" % __file__ )
@@ -220,7 +217,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             cost     = tf.stop_gradient( cost ),                  # [?,]
             actions  = tf.concat( actions, axis=1, name="actions" ) # [?,nSteps,nInst]
         )
-        
+    
     # -------------------
     # internal
     # -------------------
@@ -256,9 +253,15 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             act  = tf.debugging.check_numerics(act, "Numerical error clipping action in %s. Turn on tf.enable_check_numerics to find the root cause. Note that they are disabled in trainer.py" % __file__ )
             return act
 
-    def _features( self, data : dict, nSteps : int) -> (dict, dict):
+    @staticmethod
+    def _features( data : dict, nSteps : int = None ) -> (dict, dict):
         """ 
-        Collect requested features and convert them into common shapes.    
+        Collect requested features and convert them into common shapes.   
+        
+        Parameters
+        ----------
+            data: essentially world.tf_data
+            nSteps: for validation. Can be left None to ignore.
         
         Returns
         -------
@@ -274,7 +277,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             feature = features_per_step_i[f]
             assert isinstance(feature, tf.Tensor), "Internal error: type %s found" % feature._class__.__name__
             _log.verify( len(feature.shape) >= 2, "data['features']['per_step']['%s']: expected tensor of at least dimension 2, found shape %s", f, feature.shape.as_list() )
-            _log.verify( feature.shape[1] == nSteps, "data['features']['per_step']['%s']: second dimnsion must match number of steps, %ld, found shape %s", f, nSteps, feature.shape.as_list() )
+            if not nSteps is None: _log.verify( feature.shape[1] == nSteps, "data['features']['per_step']['%s']: second dimnsion must match number of steps, %ld, found shape %s", f, nSteps, feature.shape.as_list() )
             features_per_step[f] = tf_make_dim( feature, 3 )
 
         features_per_path_i    = features.get('per_path', {})
