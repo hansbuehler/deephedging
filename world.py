@@ -58,8 +58,8 @@ class SimpleWorld_Spot_ATM(object):
             Dimension (nSamples,1) c.f. https://stackoverflow.com/questions/60399983/how-to-create-and-use-weighted-metrics-in-keras
 
         details : dict
-            Dictionary of details, e.g. the hidden drift and realized vol
-            of the asset (numpy)
+            Dictionary of details, e.g. the hidden drift and realized vol of the asset (numpy)
+            Most important usually is 'spot_all' which are all spots of the equity (not options), including at maturity (e.g. it has nSteps+1)
 
         nSamples : int
             Number of samples
