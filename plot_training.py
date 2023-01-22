@@ -69,15 +69,16 @@ class Plot_Loss_By_Epoch(object): # NOQA
                 if loss in self.fills:
                     self.fills[loss].remove()
                 self.fills[loss] = self.ax.fill_between( x, y1=losses_here-err_, y2=losses_here+err_, color=color, alpha=self._alphas[loss] )
+                min__ = min( (losses_here-err_)[-self.lookback_window:])
+                max__ = max( (losses_here+err_)[-self.lookback_window:])
+            else:
+                min__ = min( losses_here[-self.lookback_window:])
+                max__ = max( losses_here[-self.lookback_window:])
 
             # y min/max            
             if loss != "init":
-                min__ = min(losses_here[-self.lookback_window:])
-                max__ = max(losses_here[-self.lookback_window:])
-                if min_ is None or min_ > min__:
-                    min_ = min__
-                if max_ is None or max_ < max__:
-                    max_ = max__
+                min_ = min__ if min_ is None else min( min_, min__ )
+                max_ = max__ if max_ is None else max( max_, max__ )
                     
         # indicator of best
         if self.line_best is None:
@@ -88,7 +89,10 @@ class Plot_Loss_By_Epoch(object): # NOQA
             
         # adjust graph
         self.ax.set_xlim(show_epoch0+1,show_epoch0+1+self.show_epochs)
-        self.ax.set_ylim(min_-0.001,max_+0.001)
+        dx   = max( max_-min_, 0.0001)
+        max_ += dx/20.
+        min_ -= dx/20.
+        self.ax.set_ylim(min_,max_)
         if first: self.ax.legend()
 
 class Plot_Utility_By_Epoch(object): # NOQA
@@ -96,14 +100,15 @@ class Plot_Utility_By_Epoch(object): # NOQA
     Plot object for displaying utilities progress by epoch
     """
     
-    def __init__(self, *, fig, name, err_dev, epochs, lookback_window, show_epochs ): # NOQA
+    def __init__(self, *, fig, name, label, err_dev, epochs, lookback_window, show_epochs ): # NOQA
         
         self.lookback_window  = lookback_window
         self.show_epochs      = show_epochs
         self.show_epochs      = min( self.show_epochs, epochs)
         self.err_dev          = err_dev
+        self.label            = label
         self.lines            = None
-        self.fills            = None
+        self.fills            = pdct()
         self.ax               = fig.add_subplot()
         self.ax.set_title("%s Monetay Utility" % name)
         self.ax.set_xlabel("Epochs")
@@ -121,8 +126,8 @@ class Plot_Utility_By_Epoch(object): # NOQA
         
         if self.lines is None:
             self.lines = pdct()
-            self.lines.training_util  = self.ax.plot( x, training_util,  "-", label="gains, training", color="red" )[0]
-            self.lines.val_util       = self.ax.plot( x, val_util,   ":",     label="gains, val", color="red" )[0]
+            self.lines.training_util  = self.ax.plot( x, training_util,  "-", label="%s, training" % self.label, color="red" )[0]
+            self.lines.val_util       = self.ax.plot( x, val_util,   ":",     label="%s, val" % self.label, color="red" )[0]
             self.lines.best           = self.ax.plot( [best_epoch+1], [best_training], "*", label="best training", color="black" )[0]
             self.ax.legend()
             
@@ -136,17 +141,17 @@ class Plot_Utility_By_Epoch(object): # NOQA
             self.lines.best.set_xdata( [best_epoch+1] )
             self.lines.best.set_ydata( [best_training] )
 
-        if self.fills is None:            
-            self.fills = pdct()
-        else:
-            for k in self.fills:
-                self.fills[k].remove()
-            self.fills.training_util  = self.ax.fill_between( x, training_util-training_util_err*self.err_dev, training_util+training_util_err*self.err_dev, color="red", alpha=0.2 )
+        for k in self.fills:
+            self.fills[k].remove()
+        self.fills.training_util  = self.ax.fill_between( x, training_util-training_util_err*self.err_dev, training_util+training_util_err*self.err_dev, color="red", alpha=0.2 )
 
         # y min/max            
-        min_ = np.min(training_util[-self.lookback_window:])
-        max_ = np.max(training_util[-self.lookback_window:])
-        self.ax.set_ylim(min_-0.001,max_+0.001)
+        min_ = np.min(training_util[-self.lookback_window:]-training_util_err[-self.lookback_window:]*self.err_dev)
+        max_ = np.max(training_util[-self.lookback_window:]+training_util_err[-self.lookback_window:]*self.err_dev)
+        dx   = max( max_-min_, 0.0001)
+        max_ += dx/20.
+        min_ -= dx/20.
+        self.ax.set_ylim(min_,max_)
         self.ax.set_xlim(show_epoch0+1,show_epoch0+1+self.show_epochs)
 
 class Plot_Memory_By_Epoch(object): # NOQA
@@ -241,55 +246,10 @@ class Plot_Returns_By_Spot_Ret(object): # NOQA
         # it produces less good visuals if training is bad ...
         min_ = min( np.min(gains), np.min(payoff) )
         max_ = max( np.max(gains), np.max(payoff) )
-        if min_ >= max_-0.00001:
-            min_ -= 0.0001
-            max_ += 0.0001
-        dx = (max_-min_)
-        min_ -= 0.1*dx
-        max_ += 0.1*dx
+        dx   = max( max_ - min_, 0.0001 )
+        min_ -= dx/20.
+        max_ += dx/20.
         self.ax.set_ylim(min_,max_)            
-
-class Plot_Returns_By_Percentile(object): # NOQA
-    """
-    Plot object for showing hedging performance by percentile returns
-    (not currently used)
-    """
-    
-    def __init__(self, *, fig, set_name, bins ): # NOQA
-        
-        self.bins  = bins
-        self.line1 = None
-        self.line2 = None
-        self.ax    = fig.add_subplot()            
-        self.ax.set_title("Cash Returns by Percentile\n(%s)" % set_name )
-        self.ax.set_xlabel("Percentile")
-        
-    def update(self, *, P, gains, payoff ):# NOQA
-
-        gains   = np.sort( gains )
-        payoff  = np.sort( payoff )
-        gains   = mean_bins( gains, bins=self.bins, weights=P )
-        payoff  = mean_bins( payoff, bins=self.bins, weights=P )
-        
-        x = np.linspace( 0., 1., self.bins, endpoint=True )
-        
-        if self.line1 is None:
-            self.line1 =  self.ax.plot( x, gains, label="gains", color=color_gains )[0]
-            self.line2 =  self.ax.plot( [x[-1]], [gains[-1]], "*", color=color_gains )[0]
-            self.ax.plot( x, payoff, ":", label="payoff", color=color_payoff )
-            self.ax.plot( x, payoff*0., ":", color="black" )
-            self.ax.legend()
-            self.ax.set_xlim( 0.-0.1, 1.+0.1 )
-        else:
-            self.line1.set_ydata( gains )
-            self.line2.set_ydata( [gains[-1]] )
-
-        min_ = min( np.min(gains), np.min(gains) )
-        max_ = max( np.max(gains), np.max(gains) )
-        if min_ >= max_-0.00001:
-            min_ -= 0.0001
-            max_ += 0.0001
-        #self.ax.set_ylim(min_,max_)            
 
 class Plot_Utility_By_CumPercentile(object): # NOQA
     """
@@ -329,9 +289,9 @@ class Plot_Utility_By_CumPercentile(object): # NOQA
 
         min_ = min( np.min(utility), np.min(utility0) )
         max_ = max( np.max(utility), np.max(utility0) )
-        if min_ >= max_-0.00001:
-            min_ -= 0.0001
-            max_ += 0.0001
+        dx   = max( max_ - min_, 0.0001 )
+        min_ -= dx/20.
+        max_ += dx/20.
         self.ax.set_ylim(min_,max_)            
 
 # -------------------------------------------------------
@@ -391,15 +351,12 @@ class Plot_Activity_By_Spot(object): # NOQA
             min_ = np.min( act_t ) if min_ is None else min( min_, np.min(act_t) )
             max_ = np.max( act_t ) if max_ is None else max( max_, np.max(act_t) )
 
-        if min_ >= max_-0.00001:
-            min_ -= 0.0001
-            max_ += 0.0001
-        dx = (max_-min_)
-        min_ -= 0.1*dx
-        max_ += 0.1*dx
-        self.ax.set_ylim(min_,max_)     
         if first:
             self.ax.legend()
+        dx   = max( max_ - min_, 0.0001 )
+        min_ -= dx/20.
+        max_ += dx/20.
+        self.ax.set_ylim(min_,max_)     
         
 # -------------------------------------------------------
 # Hedges by by time step
@@ -410,7 +367,7 @@ class Plot_Activity_By_Step(object): # NOQA
     Plot action or delta by step.
     """
     
-    def __init__(self, *, fig, activity_name, pcnt_lo, pcnt_hi, inst_names ): # NOQA
+    def __init__(self, *, fig, activity_name, set_name, pcnt_lo, pcnt_hi, inst_names ): # NOQA
         
         self.pcnt_lo    = pcnt_lo
         self.pcnt_hi    = pcnt_hi
@@ -418,7 +375,7 @@ class Plot_Activity_By_Step(object): # NOQA
         self.lines      = None
         self.fills      = None
         self.ax         = fig.add_subplot()
-        self.ax.set_title("Activity by time step: %s" % activity_name)
+        self.ax.set_title("%s by time step\n(%s set)" % (activity_name,set_name))
         self.ax.set_xlabel("Step")
         
     def update(self, *, P, actions ):# NOQA
@@ -437,6 +394,9 @@ class Plot_Activity_By_Step(object): # NOQA
         if self.lines is None:
             self.lines = []
             self.fills = []
+            
+        min_ = None
+        max_ = None
 
         for iInst, color in zip( range(nInst), colors() ):
             action_i       = actions[:,:,iInst]
@@ -451,9 +411,16 @@ class Plot_Activity_By_Step(object): # NOQA
                 self.lines[iInst].set_ydata( mean_i )
                 self.fills[iInst].remove()
             self.fills[iInst] = self.ax.fill_between( x, percentiles_i[:,0], percentiles_i[:,1], color=color, alpha=0.2 ) 
+            
+            min_ = np.min( percentiles_i ) if min_ is None else min( min_, np.min( percentiles_i ) )
+            max_ = np.max( percentiles_i ) if max_ is None else max( max_, np.max( percentiles_i ) )
 
         if first:
             self.ax.legend()
+        dx = max( max_ - min_, 0.0001)
+        max_ += dx/20.
+        min_ -= dx/20.
+        self.ax.set_ylim( min_, max_ )
 
 # -------------------------------------------------------
 # Monitor plotter
@@ -507,7 +474,7 @@ class Plotter(object):
         assert progress_data.epoch >= 0, "Do not call me before the first epoch"
         
         if self.plot_graphs:
-            update_plots = progress_data.epoch == 0 or (progress_data.epoch % self.epoch_refresh == 0)
+            update_plots = progress_data.epoch == 0 or ((progress_data.epoch+1) % self.epoch_refresh == 0)
             if self.fig is None:
                 """ Create figures """
                 print("\r\33[2K" + (""*100))  # clear any previous text in this line
@@ -518,8 +485,8 @@ class Plotter(object):
                 # by epoch
                 self.plot_loss_by_epoch           = Plot_Loss_By_Epoch(    fig=self.fig, title="Losses (recent)", epochs=training_info.epochs, err_dev=self.err_dev, lookback_window=self.lookback_window, show_epochs=self.show_epochs )
                 self.plot_loss_by_epoch_all       = Plot_Loss_By_Epoch(    fig=self.fig, title="Losses (all)", epochs=training_info.epochs, err_dev=self.err_dev, lookback_window=self.lookback_window, show_epochs=training_info.epochs )
-                self.plot_gains_utility_by_epoch  = Plot_Utility_By_Epoch( fig=self.fig, name="Model Gains", err_dev=self.err_dev, epochs=training_info.epochs, lookback_window=self.lookback_window, show_epochs=self.show_epochs )
-                self.plot_payoff_utility_by_epoch = Plot_Utility_By_Epoch( fig=self.fig, name="Original Payoff", err_dev=self.err_dev, epochs=training_info.epochs, lookback_window=self.lookback_window, show_epochs=self.show_epochs )
+                self.plot_gains_utility_by_epoch  = Plot_Utility_By_Epoch( fig=self.fig, name="Model Gains", label="gains", err_dev=self.err_dev, epochs=training_info.epochs, lookback_window=self.lookback_window, show_epochs=self.show_epochs )
+                self.plot_payoff_utility_by_epoch = Plot_Utility_By_Epoch( fig=self.fig, name="Original Payoff", label="payoff", err_dev=self.err_dev, epochs=training_info.epochs, lookback_window=self.lookback_window, show_epochs=self.show_epochs )
                 self.plot_memory_by_epoch         = Plot_Memory_By_Epoch(  fig=self.fig, epochs=training_info.epochs )
     
                 self.fig.next_row()
@@ -540,8 +507,8 @@ class Plotter(object):
                 self.fig.next_row()
     
                 # activity by step
-                self.plot_actions_by_step          = Plot_Activity_By_Step(    fig=self.fig, activity_name="Actions\n(training set)", pcnt_lo=self.pcnt_lo, pcnt_hi=self.pcnt_hi, inst_names=world.inst_names )
-                self.plot_deltas_by_step           = Plot_Activity_By_Step(    fig=self.fig, activity_name="Delta\n(training set)", pcnt_lo=self.pcnt_lo, pcnt_hi=self.pcnt_hi, inst_names=world.inst_names )
+                self.plot_actions_by_step          = Plot_Activity_By_Step(    fig=self.fig, activity_name="Action", set_name="training", pcnt_lo=self.pcnt_lo, pcnt_hi=self.pcnt_hi, inst_names=world.inst_names )
+                self.plot_deltas_by_step           = Plot_Activity_By_Step(    fig=self.fig, activity_name="Delta", set_name="training", pcnt_lo=self.pcnt_lo, pcnt_hi=self.pcnt_hi, inst_names=world.inst_names )
                 # activity by spot
                 self.plot_action0_by_step          = Plot_Activity_By_Spot(    fig=self.fig, bins=self.bins, slices=self.time_slices, which_inst=0, activity_name="Action", inst_name=world.inst_names[0], set_name="training")
                 self.plot_delta0_by_step           = Plot_Activity_By_Spot(    fig=self.fig, bins=self.bins, slices=self.time_slices, which_inst=0, activity_name="Delta", inst_name=world.inst_names[0], set_name="training")
@@ -604,7 +571,7 @@ class Plotter(object):
         # comment on timing:
         total_time_passed = sum( progress_data.times )
         time_per_epoch    = total_time_passed / float(progress_data.epoch+1)
-        time_left         = time_per_epoch * float(training_info.epochs)
+        time_left         = time_per_epoch * float(training_info.epochs-(progress_data.epoch+1))
         str_num_weights   = fmt_big_number( training_info.num_weights )
         
         str_sys   = "memory used: rss %gM, vms %gM" % ( progress_data.process.memory_rss[-1], progress_data.process.memory_vms[-1] )

@@ -168,12 +168,9 @@ class Monitor(tf.keras.callbacks.Callback):
                                         result0        = result0
                                         )
         
-        if not self.plotter is None: print("Network feature information:\n"\
-                " Features used by the agent:        %s\n"\
-                " Features available to the agent:   %s\n"\
-                " Features used by the utility:      %s\n"\
-                " Features available to the utility: %s" % \
-            ( fmt_list(gym.agent_features_used), fmt_list(gym.available_features_per_step), fmt_list(gym.utility_features_used), fmt_list(gym.available_features_per_path)) )
+        if not self.plotter is None: 
+            print(gym.agent.description)
+            print(gym.utility.description)
 
         # caching
         self.cache_mode       = CacheMode( self.cache_mode )

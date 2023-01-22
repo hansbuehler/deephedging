@@ -6,7 +6,7 @@ June 30, 2022
 @author: hansbuehler
 """
 
-from .base import Logger, Config, tf, dh_dtype, tf_glorot_value, Int, Float # NOQA
+from .base import Logger, Config, tf, dh_dtype, tf_glorot_value, Int, Float, DIM_DUMMY# NOQA
 from collections.abc import Mapping, Sequence # NOQA
 import numpy as np
 _log = Logger(__file__)
@@ -33,32 +33,60 @@ class VariableLayer(tf.keras.layers.Layer):
         tf.keras.layers.Layer.__init__(self, name=name, dtype=dtype )        
         if not isinstance(init, (float, np.ndarray, tf.Tensor)):
             _log.verify( isinstance(init, (tuple, tf.TensorShape)), "'init' must of type float, np.array, tf.Tensor, tuple, or tf.TensorShape. Found type %s", type(init))
-            init                = tf_glorot_value(init)
-        self.variable           = tf.Variable( init, trainable=trainable, name=name+"_variable" if not name is None else None, dtype=self.dtype )
-        self.available_features = None
+            init                 = tf_glorot_value(init)
+        self.variable            = tf.Variable( init, trainable=trainable, name=name+"_variable" if not name is None else None, dtype=self.dtype )
+        self._available_features = None
 
-    def build( self, shapes : dict ): # NOQA
-        self.available_features = sorted( [ str(k) for k in shapes ] )
-
+    def build( self, shapes : dict ):
+        """
+        Build the variable layer
+        This function ensures 'shapes' contains DIM_DUMMY so it can create returns of sample size
+        """
+        self._available_features = sorted( [ str(k) for k in shapes if not k == DIM_DUMMY ] )
+        dummy_shape = shapes.get(DIM_DUMMY, None)
+        _log.verify( not dummy_shape is None, "Every data set must have a member '%s' (value of base.DIM_DUMMY) of dimension [None,]. Found data: %s", DIM_DUMMY, self.available_features )
+        _log.verify( len(dummy_shape) == 2 and dummy_shape[1] == 1, "Every data set must have a member '%s' (value of base.DIM_DUMMY) of dimension [None,1]. Found data: %s of shape %s", DIM_DUMMY, self.available_features, dummy_shape.as_list() )
+        
     def call( self, dummy_data : dict = None, training : bool = False ) -> tf.Tensor:
-        """ Return variable value """
-        return self.variable
+        """
+        Return variable value
+        The returned tensor will be of dimension [None,] if self is a float, and otherwise of dimension [None, ...]
+        
+        The 'dummy_data' dictionary must have an element DIM_DUMMY of dimension [None,1]
+        """
+        dummy = dummy_data[DIM_DUMMY][:,0]
+        if len(self.variable.shape) == 0:
+            return dummy*0. + self.variable
+        x = (dummy*0.)[:,tf.newaxis] + self.variable[tf.newaxis,...]
+        return x
     
     @property
-    def features(self) -> list: # NOQA
+    def features(self) -> list:
+        """ Returns the list of features used """
         return []
-    
     @property
-    def nFeatures(self) -> int: #NOQA
+    def available_features(self) -> list:
+        """ Returns the list of features avaialble """
+        _log.verify( not self._available_features is None, "build() must be called first")
+        return self._available_features
+    @property
+    def nFeatures(self) -> int:
+        """ Returns the number of features used """
         return 0
+    @property
+    def num_trainable_weights(self) -> int:
+        """ Returns the number of weights. The model must have been call()ed once """
+        weights = self.trainable_weights
+        return np.sum( [ np.prod( w.get_shape() ) for w in weights ] )
 
+    
 class DenseLayer(tf.keras.layers.Layer):
     """
     Core dense Keras layer
     Pretty generic dense layer. Also acts as plain variable if it does not depend on any variables.
     """
     
-    def __init__(self, features, nOutput : int, initial_value = None, config : Config = Config(), name : str = None, dtype : tf.DType = dh_dtype ):
+    def __init__(self, features, nOutput : int, initial_value = None, config : Config = Config(), name : str = None, defaults = Config(), dtype : tf.DType = dh_dtype ):
         """
         Create a simple dense later with nInput nodes and nOuput nodes.
         
@@ -78,17 +106,22 @@ class DenseLayer(tf.keras.layers.Layer):
         """
         tf.keras.layers.Layer.__init__(self, name=name, dtype=dtype )
         self.nOutput           = int(nOutput)
-        self.width             = config("width",20, Int>0, help="Network width.")
-        self.activation        = config("activation","relu", help="Network activation function")
-        self.depth             = config("depth", 3, Int>0, help="Network depth")
-        self.final_activation  = config("final_activation","linear", help="Network activation function for the last layer")
-        self.zero_model        = config("zero_model", False, bool, "Create a model with zero initial value, but randomized initial gradients")
+        def_width              = defaults("width",20, Int>0, help="Network width.")
+        def_activation         = defaults("activation","relu", help="Network activation function")
+        def_depth              = defaults("depth", 3, Int>0, help="Network depth")
+        def_final_activation   = defaults("final_activation","linear", help="Network activation function for the last layer")
+        def_zero_model         = defaults("zero_model", False, bool, "Create a model with zero initial value, but randomized initial gradients")
+        self.width             = config("width",def_width, Int>0, help="Network width.")
+        self.activation        = config("activation",def_activation, help="Network activation function")
+        self.depth             = config("depth", def_depth, Int>0, help="Network depth")
+        self.final_activation  = config("final_activation",def_final_activation, help="Network activation function for the last layer")
+        self.zero_model        = config("zero_model", def_zero_model, bool, "Create a model with zero initial value, but randomized initial gradients")
         self.features          = sorted( set( features ) ) if not features is None else None
-        self.features          = self.features if len(self.features) > 0 else None
         self.nFeatures         = None
         self.model             = None        
         self.initial_value     = None
         self.available_features= None
+        
         if not initial_value is None:
             if isinstance(initial_value, np.ndarray):
                 _log.verify( initial_value.shape == (nOutput,), "Internal error: initial value shape %s does not match 'nOutput' of %ld", initial_value.shape, nOutput )
@@ -108,6 +141,7 @@ class DenseLayer(tf.keras.layers.Layer):
         _log.verify( self.features is None or isinstance(shapes, Mapping), "'shapes' must be a dictionary type if 'features' are specified. Found type %s", type(shapes ))
         
         # collect features
+        # features can have different dimensions, so we count the total size of the feature vector
         self.nFeatures = 0
         if not self.features is None:
             for feature in self.features:
@@ -116,7 +150,7 @@ class DenseLayer(tf.keras.layers.Layer):
                 assert len(fs) == 2, ("Internal error: all features should have been flattend. Found feature '%s' with shape %s" % (feature, fs))
                 self.nFeatures += fs[1]
                 
-        self.available_features = sorted( [ str(k) for k in shapes ] )
+        self.available_features = sorted( [ str(k) for k in shapes if not k == DIM_DUMMY ] )
     
         # build model
         # simple feedforward model as an example
@@ -187,3 +221,9 @@ class DenseLayer(tf.keras.layers.Layer):
         assert self.nFeatures == features.shape[1], ("Condig error: number of features should match up. Found %ld and %ld" % ( self.nFeatures, features.shape[1] ) )
         return self.model( features, training=training )
     
+    @property
+    def num_trainable_weights(self) -> int:
+        """ Returns the number of weights. The model must have been call()ed once """
+        assert not self.model is None, "build() must be called first"
+        weights = self.trainable_weights
+        return np.sum( [ np.prod( w.get_shape() ) for w in weights ] )

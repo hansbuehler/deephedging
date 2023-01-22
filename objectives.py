@@ -7,7 +7,7 @@ June 30, 2022
 @author: hansbuehler
 """
 
-from .base import Logger, Config, tf, dh_dtype, tfCast
+from .base import Logger, Config, tf, dh_dtype, tfCast, fmt_list
 from .layers import DenseLayer, VariableLayer
 from cdxbasics import PrettyDict as pdct
 from collections.abc import Mapping
@@ -132,7 +132,9 @@ class MonetaryUtility(tf.keras.Model):
         """ 
         _log.verify( isinstance(features_time_0, Mapping), "'features_time_0' must be a dictionary type. Found type %s", type(features_time_0))
         features_time_0 = features_time_0 if not features_time_0 is None else {}
-        y     = self.y( features_time_0, training=training ) 
+        y      = self.y( features_time_0, training=training )
+        assert len(y.shape) == 2 and y.shape[1] == 1, "Internal error: expected variable to return a vector of shape [None,1]. Found %s" % y.shape.as_list()
+        y      = y[:,0]
         #y     = tf.debugging.check_numerics(y, "Numerical error computing OCE_y in %s" % __file__ )
         return utility(self.utility, self.lmbda, X, y=y )
         
@@ -148,6 +150,18 @@ class MonetaryUtility(tf.keras.Model):
     def nFeatures(self):
         """ Number of features used """
         return self.y.nFeatures
+    @property
+    def num_trainable_weights(self) -> int:
+        """ Returns the number of weights. The model must have been call()ed once """
+        weights = self.trainable_weights
+        return np.sum( [ np.prod( w.get_shape() ) for w in weights ] )
+    @property
+    def description(self):
+        """ Returns a text description of 'self' """
+        text =        "Monetary utility %s is using %ld weight%s" % (self.display_name, self.num_trainable_weights, "s" if self.num_trainable_weights != 1 else "")
+        text +=     "\n Features available: %s" % fmt_list( self.y.available_features )
+        text +=     "\n Features used:      %s" % fmt_list( self.y.features )
+        return text
     
     # -----------------------------------
     # Analytical
@@ -194,6 +208,7 @@ class MonetaryUtility(tf.keras.Model):
         r  = minimize_scalar( objective, **minimize_scalar_kwargs )
         _log.verify( r.success, "Failed to find optimal intercept 'y' for utility %s with risk aversion %g: %s", self.utility, self.lmbda, r.message )
         return -r.x
+        
         
 @tf.function  
 def utility( utility : str, lmbda : float, X : tf.Tensor, y : tf.Tensor = 0. ) -> dict:

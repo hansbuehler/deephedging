@@ -8,7 +8,7 @@ June 30, 2022
 @author: hansbuehler
 """
 
-from .base import Logger, Config, tf, dh_dtype, Int
+from .base import Logger, Config, tf, dh_dtype, Int, fmt_list
 from .layers import DenseLayer, VariableLayer
 import numpy as np
 from collections.abc import Mapping
@@ -55,17 +55,39 @@ class SimpleDenseAgent(tf.keras.layers.Layer):
                 dtype
         """
         tf.keras.layers.Layer.__init__(self, name=name, dtype=dtype )
-        features                = config("features", self.Default_features_per_step, list, help="Named features for the agent to use")
+        features                = config("features", self.Default_features_per_step, list, "Named features for the agent to use")
+        state_features          = config.state("features", [], list, "Named features for the agent to use for the initial state network")
+        init_delta_features     = config.init_delta("features", [], list, "Named features for the agent to use for the initial delta network")
+        init_delta              = config.init_delta("active", True, bool, "Whether or not to train in addition a delta layer for the first step")
         self.nStates            = config("recurrence", 0, Int>=0, "Number of recurrent states. Set to zero to turn off recurrence")
-        if self.nStates > 0:
-            features.append( self.State_Feature_Name )
-            features = sorted(features)
-        self.state_feature_name = self.State_Feature_Name if self.nStates > 0 else None
         self.nInst              = int(nInst)
-        self.layer              = DenseLayer( features=features, nOutput=self.nInst+self.nStates, config=config.network, name=name+"_dense", dtype=dtype )
-        self.init_state         = VariableLayer( (self.nStates,), name=name+"_initial_state" if not name is None else None, dtype=dtype ) if self.nStates > 0 else None
-        config.done() # all config read
         
+        default_state = Config()
+        default_state.depth    = 1
+        default_state.width    = self.nStates
+        default_idelta = Config()
+        default_idelta.depth   = 1
+        default_idelta.width   = self.nInst
+ 
+        _log.verify( self.State_Feature_Name not in features, "Cannot use internal state name '%s' in feature list", self.State_Feature_Name )
+        
+        is_recurrent            = self.nStates > 0
+        self.state_feature_name = self.State_Feature_Name if is_recurrent else None  
+        features                = sorted( features + [ self.State_Feature_Name ] if is_recurrent else features ) 
+        nOutput                 = self.nInst+self.nStates if is_recurrent else self.nInst
+        self._layer             = DenseLayer( features=features, nOutput=nOutput, config=config.network, name=name+"_layer", dtype=dtype )
+        self._init_state        = DenseLayer( features=sorted(state_features), nOutput=self.nStates, config=config.state.network, defaults=default_state, name=name+"_init_state", dtype=dtype ) if is_recurrent else None
+        self._init_delta        = DenseLayer( features=sorted(init_delta_features), nOutput=self.nInst, config=config.init_delta.network, defaults=default_idelta, name=name+"_init_delta", dtype=dtype ) if init_delta else None
+        config.done() # all config read
+       
+    def initial_state(self, features_time_0 : dict, training : bool = False ) -> tf.Tensor:
+        """ Retrieves the initial state of the agent if the agent is recurrent """
+        return self._init_state(features_time_0,training=training) if self.is_recurrent else None
+    
+    def initial_delta(self, features_time_0 : dict, training : bool = False ) -> tf.Tensor:
+        """ Retrieves initial delta of the agent if requested """
+        return self._init_delta(features_time_0,training=training) if not self._init_delta is None else None
+    
     def call( self, all_features : dict, training : bool = False ) -> tuple:
         """
         Compute next action, and recurrent state.
@@ -78,134 +100,59 @@ class SimpleDenseAgent(tf.keras.layers.Layer):
         """
         # if the mode is not recurrent -> just return next action
         if self.nStates == 0:
-            return self.layer(all_features, training=training), None
+            return self._layer(all_features, training=training), None
         
-        # if the model is recurrent, handle recurrent state
-        if not self.State_Feature_Name in all_features:
-            # TF expects the leading dimension for any variable to be the number of samples.
-            # Below is a bit of a hack
-            all_features    = dict(all_features)
-            delta           = all_features['delta']   # current spot [None,N]
-            init_state      = self.init_state(all_features, training=training)
-            assert len(delta.shape) == 2, "'delta': expected tensor of dimensionm 2. Found %s" % delta.shape.as_list()
-            assert len(init_state.shape) == 1, "init_state: expected to be a plain vector. Found shape %s" % init_state.shape
-            init_state      = delta[:,0][:,tf.newaxis] * 0. + init_state[tf.newaxis,:] 
-            all_features[self.State_Feature_Name] = init_state
-        
-        action_state = self.layer(all_features, training=training)
+        action_state = self._layer(all_features, training=training)
         return action_state[:,:self.nInst], action_state[:,self.nInst:]
 
     @property
     def is_recurrent(self):
         """ Determines whether the current agent is recurrent, and has a 'state' """
-        return not self.init_state is None
+        return not self._init_state is None
     @property
-    def nFeatures(self): # NOQA
+    def has_initial_delta(self):
+        """ Whether the agent provides an initial delta (which still needs to be traded) """
+        return not self._init_delta is None
+    @property
+    def nFeatures(self):
         """ Number of features used by the agent """
-        return self.layer.nFeatures     
+        return self._layer.nFeatures     
     @property
     def features(self):
         """ List of all features used by this agent. This includes the recurrent state, if the model is recurrent """
-        return self.layer.features
+        return self._layer.features
     @property
     def public_features(self):
         """ Sorted list of all publicly visible features used by this agent. This excludes the internal recurrent state """
-        return [ k for k in self.layer.features if not k == self.State_Feature_Name ]
+        return [ k for k in self._layer.features if not k == self.State_Feature_Name ]
     @property
-    def available_features(self): # NOQA
+    def available_features(self):
         """ List of features available to the agent """
-        return [ k for k in self.layer.available_features if not k == self.State_Feature_Name ]
-    
-    
-class ZeroAgent(tf.keras.layers.Layer):
-    """ Agent whose actions are zero """
-    
-    Default_features_per_step = [ 'price', 'delta', 'time_left' ]
-    State_Feature_Name = "recurrent_state"
-
-    def __init__(self, nInst : int, config : Config, name : str = None, dtype : tf.DType = dh_dtype ):
-        """
-        Create an agent which returns the action for the given Deep Hedging problem
-        See tf.keras.layers.Layer.__call__ for comments
-        
-        The agent's __call__ function will take in a dictionar of tenors
-        of all feature avaialble, and return the corresponding action
-        for 'nInst' instruments.
-        
-        Parameters
-        ----------
-            nInst : int
-                Number of instruments
-            config : Config
-                Configuration for this object. Most notably
-                    network : Config
-                        network.width
-                        network.activation
-                        network.depth
-                    features : list
-                        Set of features by name the network will use
-            name : str, optional
-                Name of the layer
-            per_step : bool, optional
-                Whether the agent is used per time step, or once per sample.
-            dtype : tf.DType, optional
-                dtype
-        """
-        tf.keras.layers.Layer.__init__(self, name=name, dtype=dtype )
-        features                = config("features", self.Default_features_per_step, list, help="Named features for the agent to use")
-        self.nStates            = config("recurrence", 0, Int>=0, "Number of recurrent states. Set to zero to turn off recurrence")
-        if self.nStates > 0:
-            features.append( self.State_Feature_Name )
-            features = sorted(features)
-        self.state_feature_name = self.State_Feature_Name if self.nStates > 0 else None
-        self.nInst              = int(nInst)
-        self.layer              = DenseLayer( features=features, nOutput=self.nInst+self.nStates, config=config.network, name=name+"_dense", dtype=dtype )
-        self.init_state         = VariableLayer( (self.nStates,), name=name+"_initial_state" if not name is None else None, dtype=dtype ) if self.nStates > 0 else None
-        config.done() # all config read
-        
-    def call( self, all_features : dict, training : bool = False ) -> tuple:
-        """
-           
-        """
-        # if the mode is not recurrent -> just return next action
-        if self.nStates == 0:
-            return self.layer(all_features, training=training), None
-        
-        # if the model is recurrent, handle recurrent state
-        if not self.State_Feature_Name in all_features:
-            # TF expects the leading dimension for any variable to be the number of samples.
-            # Below is a bit of a hack
-            all_features    = dict(all_features)
-            delta           = all_features['delta']   # current spot [None,N]
-            init_state      = self.init_state(all_features, training=training)
-            assert len(delta.shape) == 2, "'delta': expected tensor of dimensionm 2. Found %s" % delta.shape.as_list()
-            assert len(init_state.shape) == 1, "init_state: expected to be a plain vector. Found shape %s" % init_state.shape
-            init_state      = delta[:,0][:,tf.newaxis] * 0. + init_state[tf.newaxis,:] 
-            all_features[self.State_Feature_Name] = init_state
-        
-        action_state = self.layer(all_features, training=training)
-        return action_state[:,:self.nInst], action_state[:,self.nInst:]
+        return [ k for k in self._layer.available_features if not k == self.State_Feature_Name ]
+    @property
+    def num_trainable_weights(self) -> int:
+        """ Returns the number of weights. The model must have been call()ed once """
+        assert not self._layer is None, "build() must be called first"
+        weights = self.trainable_weights
+        return np.sum( [ np.prod( w.get_shape() ) for w in weights ] )
 
     @property
-    def is_recurrent(self):
-        """ Determines whether the current agent is recurrent, and has a 'state' """
-        return not self.init_state is None
-    @property
-    def nFeatures(self): # NOQA
-        """ Number of features used by the agent """
-        return self.layer.nFeatures     
-    @property
-    def features(self):
-        """ List of all features used by this agent. This includes the recurrent state, if the model is recurrent """
-        return self.layer.features
-    @property
-    def public_features(self):
-        """ Sorted list of all publicly visible features used by this agent. This excludes the internal recurrent state """
-        return [ k for k in self.layer.features if not k == self.State_Feature_Name ]
-    @property
-    def available_features(self): # NOQA
-        """ List of features available to the agent """
-        return [ k for k in self.layer.available_features if not k == self.State_Feature_Name ]
+    def description(self):
+        """ Returns a text description of 'self' """
+        _log.verify( not self._layer is None, "build() must be called first")
+        text_1 =         "Agent is using %ld weights: %ld for the main agent per step" % (self.num_trainable_weights, self._layer.num_trainable_weights)
+        text_2 =         " Features available per time step:     %s\n" \
+                         " Features used per time step:          %s" % ( fmt_list( self._layer.available_features ), fmt_list( self._layer.features ) )
+        if self.has_initial_delta:
+            text_1 +=   ", %ld for initial delta" % self._init_delta.num_trainable_weights
+            text_2 +=  "\n Features available for initial delta: %s"\
+                       "\n Features used by initial delta:       %s" % ( fmt_list( self._init_delta.available_features ), fmt_list( self._init_delta.features ) )
+        if self.is_recurrent:
+            text_1 +=   ", %ld for the initial state" % self._init_state.num_trainable_weights
+            text_2 +=  "\n Features available for initial state: %s"\
+                       "\n Features used by initial state:       %s" % ( fmt_list( self._init_state.available_features ), fmt_list( self._init_state.features ) )
+                
+        return text_1 + ".\n" + text_2
     
 # =========================================================================================
 # Factory

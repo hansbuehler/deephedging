@@ -8,7 +8,7 @@ June 30, 2022
 @author: hansbuehler
 """
 
-from deephedging.base import Logger, Config, dh_dtype, tf, tfCast, pdct, tf_dict, assert_iter_not_is_nan, Int, Float
+from deephedging.base import Logger, Config, dh_dtype, tf, tfCast, pdct, tf_dict, assert_iter_not_is_nan, Int, Float, DIM_DUMMY
 from cdxbasics.dynaplot import figure, colors_tableau
 import numpy as np
 import math as math
@@ -184,8 +184,12 @@ class SimpleWorld_BS(object):
                 time_left      = np.full( (nSamples, nSteps), time_left[np.newaxis,:] ),
                 sqrt_time_left = np.full( (nSamples, nSteps), sqrt_time_left[np.newaxis,:] ),
                 ),
-            per_path = pdct(),                    # per path information not currently used
+            per_path = pdct(),
             )
+        
+        # the following variables must always be present in any world
+        # it allows to cast dimensionless variables to the number of samples
+        self.data.features.per_path[DIM_DUMMY] = payoff * 0.
             
         # check numerics
         assert_iter_not_is_nan( self.data, "data" )

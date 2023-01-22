@@ -34,6 +34,8 @@ print("Tensorflow version %s running on %ld CPUs and %ld GPUs" % (tf.__version__
 dh_dtype = tf.float32
 tf.keras.backend.set_floatx(dh_dtype.name)
 
+DIM_DUMMY = "_dimension_dummy"   # added to each world data dictionary to allow code to always asses the number of samples. Objkect is to be of dimension [None,]
+
 # -------------------------------------------------
 # TF <--> NP
 # -------------------------------------------------
@@ -176,11 +178,14 @@ def tf_make_dim( tensor : tf.Tensor, dim : int ) -> tf.Tensor:
     -------
         Flat tensor.
     """
-    if len(tensor.shape) > dim:
-        return tf_back_flatten(tensor,dim)
-    while len(tensor.shape) < dim:
-        tensor = tensor[...,tf.newaxis]
-    return tensor
+    try:
+        if len(tensor.shape) > dim:
+            return tf_back_flatten(tensor,dim)
+        while len(tensor.shape) < dim:
+            tensor = tensor[...,tf.newaxis]
+        return tensor
+    except AttributeError as e:
+        _log.throw( "Error converting tensor to dimension %ld: %s\nTensor is %s of type %s", dim, e, str(tensor), type(tensor) )
 
 # -------------------------------------------------
 # Basic arithmetics for non-uniform distributions
@@ -214,7 +219,7 @@ def err( P : np.ndarray, w : np.ndarray, axis : int = None ) -> np.ndarray:
     assert np.sum(np.isnan(e)) == 0, "Internal error: %g" % e
     return e
 
-def mean_bins( x : np.ndarray, bins : int, weights = None ) -> np.ndarray:
+def mean_bins( x : np.ndarray, bins : int, weights = None, return_std = False ) -> np.ndarray:
     """
     Return a vector of 'bins' means of x.
     Bins the vector 'x' into 'bins' bins, then computes the mean of each bin, and returns the resulting vector of length 'bins'.
@@ -233,25 +238,35 @@ def mean_bins( x : np.ndarray, bins : int, weights = None ) -> np.ndarray:
             Number of bins
         weights : vector
             Sample weights or zero for unit weights
+        return_std : bool
+            If true, function returns a tuple of means and std devs
     Returns
     -------
-        Numpy array of bins.
+        Numpy array of bins, or tuple of means and std devs of return_std is True
     """
-    def w_mean(x,p,i1,i2):
-        return np.mean( x[i1:i2] ) if p is None else np.sum( (x*p)[i1:i2] ) / np.sum( p[i1:i2] )
-
-    x    = np.asarray(x)
-    l    = len(x)
+    def w_mean_err(x,p,i1,i2):
+        pp = np.sum( p[i1:i2] )
+        if pp<=0.:
+            return 0.,0.
+        mean = np.sum( (x*p)[i1:i2] ) / pp
+        esq  = np.sum( (x*x*p)[i1:i2] ) / pp
+        err  = math.sqrt( esq - mean*mean*pp )
+        return [ mean, err ]
+    
+    x        = np.asarray(x)
+    l        = len(x)
     assert len(x.shape) == 1, "Only plaoin vectors are supported. Need to extend to more axes"
+    weights  = weights if not weights is None else np.full( x.shape, 1./float(len(x)) )
     if l <= bins:
-        return x
+        return x if not return_std else (x, np.zeros_like(x))
     assert bins > 0, "'bins' must be positive"
-    if bins == 1:
-        return w_mean(x,weights,0,l)
 
-    ixs  = np.linspace(0,l,bins+1, endpoint=True, dtype=np.int32)
-    bins = np.array( [ w_mean(x,weights,ixs[i],ixs[i+1]) for i in range(bins) ] )
-    return bins
+    ixs     = np.linspace(0,l,bins+1, endpoint=True, dtype=np.int32)
+    results = np.array( [ w_mean_err(x,weights,ixs[i],ixs[i+1]) for i in range(bins) ] )
+    assert results.shape == (bins,2), "Found shape %s" % str(results.shape)
+    if not return_std:
+        return results[:,0]
+    return results[:,0], results[:,1]
     
 def mean_cum_bins( x : np.ndarray, bins : int, weights = None ) -> np.ndarray:
     """

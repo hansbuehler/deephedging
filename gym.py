@@ -148,14 +148,25 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             
         # main loop
         # ---------
+        # V2.0 now supports
+        # - recurrent networks
+        # - an initial delta add-on which uses a different network than the agent for every time step.
+        #   the reason is that if the payoff is unhedged, initial delta is very different than subsequent actions
+        # - Tensorflow compilable loop, e.g. the loop below will not be unrolled when tensorflow compiles the function
 
+        # meaningful features at first time step
+        features_time_0 = {}
+        features_time_0.update( { f:features_per_path[f] for f in features_per_path } )
+        features_time_0.update( { f:features_per_step[f][:,0,:] for f in features_per_step})
+
+        # initialize variable and obtain initial recurrent state, if any
         pnl     = tf.zeros_like(payoff, dtype=dh_dtype)                                                       # [?,]
         cost    = tf.zeros_like(payoff, dtype=dh_dtype)                                                       # [?,]
         delta   = tf.zeros_like(trading_cost[:,0,:], dtype=dh_dtype)                                          # [?,nInst]
         action  = tf.zeros_like(trading_cost[:,0,:], dtype=dh_dtype)                                          # [?,nInst]
         actions = tf.zeros_like(trading_cost[:,0,:][:,tf.newaxis,:], dtype=dh_dtype)                          # [?,0,nInst]
-        state   = self.agent.init_state({},training=training) if self.agent.is_recurrent else None
-        state   = pnl[:,tf.newaxis]*0. + state[tf.newaxis,:] if not state is None else tf.zeros_like(pnl)     # [?,nStates] if states are used; [?] else
+        state   = self.agent.initial_state( features_time_0, training=training ) if self.agent.is_recurrent else tf.zeros_like(pnl, dtype=dh_dtype)  # [?,nStates] if states are used else [?]
+        idelta  = self.agent.initial_delta( features_time_0, training=training ) if self.agent.has_initial_delta else tf.zeros_like(delta, dtype=dh_dtype)  # [?,nInst] 
         
         t       = 0
         while tf.less(t,nSteps, name="main_loop"): # logically equivalent to: for t in range(nSteps):
@@ -165,14 +176,12 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             live_features = dict( action=action, delta=delta, cost=cost, pnl=pnl )
             live_features.update( { f:features_per_path[f] for f in features_per_path } )
             live_features.update( { f:features_per_step[f][:,t,:] for f in features_per_step})
-            live_features['delta'] = delta
-            live_features['action'] = action
             if self.agent.is_recurrent: live_features[ self.agent.state_feature_name ] = state
 
             # 2: action
             action, state_ =  self.agent( live_features, training=training )
-            _log.verify( action.shape.as_list() in [ [nBatch, nInst], [1, nInst] ], "Error: action: expected shape %s or %s, found %s", [nBatch, nInst], [1,nInst], action.shape.as_list() )
-            action         =  action if len(action.shape) == 2 else action[tf.newaxis,:]
+            _log.verify( action.shape.as_list() == [nBatch, nInst], "Error: action return by agent: expected shape %s, found %s", [nBatch, nInst], action.shape.as_list() )
+            action         += idelta
             action         =  self._clip_actions(action, lbnd_a[:,t,:], ubnd_a[:,t,:] )
             state          =  state_ if self.agent.is_recurrent else state
             delta          += action
@@ -184,18 +193,15 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             # 4: record actions per path, per step, continue loop
             action_        =  tf.stop_gradient( action )[:,tf.newaxis,:]
             actions        =  tf.concat( [actions,action_], axis=1, name="actions") if t>0 else action_
-            t              += 1
+            idelta         *= 0. # no more initial delta
+            t              += 1  # loop
 
-        pnl  = tf.debugging.check_numerics(pnl, "Numerical error computing pnl in %s. Turn on tf.enable_check_numerics to find the root cause. Note that they are disabled in trainer.py" % __file__ )
-        cost = tf.debugging.check_numerics(cost, "Numerical error computing cost in %s. Turn on tf.enable_check_numerics to find the root cause. Note that they are disabled in trainer.py" % __file__ )
+        pnl  = tf.debugging.check_numerics(pnl, "Numerical error computing pnl in %s. Turn on tf.enable_check_numerics to find the root cause. Note that they are disabled by default in trainer.py" % __file__ )
+        cost = tf.debugging.check_numerics(cost, "Numerical error computing cost in %s. Turn on tf.enable_check_numerics to find the root cause. Note that they are disabled by default in trainer.py" % __file__ )
 
         # compute utility
         # ---------------
         
-        features_time_0 = {}
-        features_time_0.update( { f:features_per_path[f] for f in features_per_path } )
-        features_time_0.update( { f:features_per_step[f][:,0,:] for f in features_per_step})
-
         utility           = self.utility( data=dict(features_time_0 = features_time_0,
                                                     payoff          = payoff, 
                                                     pnl             = pnl,
@@ -275,13 +281,18 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         features_per_step    = {}
         for f in features_per_step_i:
             feature = features_per_step_i[f]
-            assert isinstance(feature, tf.Tensor), "Internal error: type %s found" % feature._class__.__name__
+            assert isinstance(feature, tf.Tensor), "Internal error: type %s found" % feature.__class__.__name__
             _log.verify( len(feature.shape) >= 2, "data['features']['per_step']['%s']: expected tensor of at least dimension 2, found shape %s", f, feature.shape.as_list() )
-            if not nSteps is None: _log.verify( feature.shape[1] == nSteps, "data['features']['per_step']['%s']: second dimnsion must match number of steps, %ld, found shape %s", f, nSteps, feature.shape.as_list() )
+            if not nSteps is None: _log.verify( feature.shape[1] == nSteps, "data['features']['per_step']['%s']: second dimension must match number of steps, %ld, found shape %s", f, nSteps, feature.shape.as_list() )
             features_per_step[f] = tf_make_dim( feature, 3 )
 
         features_per_path_i    = features.get('per_path', {})
-        features_per_path      = { tf_make_dim( _, dim=2 ) for _ in features_per_path_i }
+        features_per_path      = {}
+        assert isinstance( features_per_path_i, dict), "Internal error: type %s found" % features_per_path_i.__class__.__name__
+        for f in features_per_path_i:
+            feature = features_per_path_i[f]
+            assert isinstance(feature, tf.Tensor), "Internal error: type %s found" % feature.__class__.__name__
+            features_per_path[f] = tf_make_dim( feature, dim=2 ) 
         return features_per_step, features_per_path
 
     # -------------------
