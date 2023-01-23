@@ -211,12 +211,14 @@ class Plot_Returns_By_Spot_Ret(object): # NOQA
     Plot object for showing hedging performance by return of spot (the most intuitive)
     """
     
-    def __init__(self, *, fig, ret_name, set_name, bins ): # NOQA
-        self.bins    = bins
-        self.ax      = fig.add_subplot()            
-        self.line    = None
-        self.line_h  = None
-        self.ax.set_title("%s by Spot Return\n(%s))" % (ret_name,set_name) )
+    def __init__(self, *, fig, title, bins, with_std ): # NOQA
+        self.bins     = bins
+        self.with_std = with_std
+        self.ax       = fig.add_subplot()            
+        self.line     = None
+        self.line_h   = None
+        self.fills    = {}
+        self.ax.set_title(title)
         self.ax.set_xlabel("Spot return")
         
     def update(self, *, P, gains, hedge, payoff, spot_ret ):# NOQA
@@ -226,10 +228,10 @@ class Plot_Returns_By_Spot_Ret(object): # NOQA
         gains    = gains[ixs]
         hedge    = hedge[ixs]
         payoff   = payoff[ixs]
-        x        = mean_bins( x, bins=self.bins, weights=P )
-        gains    = mean_bins( gains, bins=self.bins, weights=P )
-        hedge    = mean_bins( hedge, bins=self.bins, weights=P )
-        payoff   = mean_bins( payoff, bins=self.bins, weights=P )
+        x                  = mean_bins( x, bins=self.bins, weights=P, return_std=False )
+        gains, gains_std   = mean_bins( gains, bins=self.bins, weights=P, return_std=True )
+        hedge, hedge_std   = mean_bins( hedge, bins=self.bins, weights=P, return_std=True )
+        payoff, payoff_std = mean_bins( payoff, bins=self.bins, weights=P, return_std=True )
         
         if self.line is None:
             self.line   =  self.ax.plot( x, gains, label="gains", color=color_gains )[0]
@@ -240,6 +242,13 @@ class Plot_Returns_By_Spot_Ret(object): # NOQA
         else:
             self.line.set_ydata( gains )
             self.line_h.set_ydata( -hedge )
+
+        if self.with_std:
+            for k in self.fills:
+                self.fills[k].remove()
+            self.fills['gains']   = self.ax.fill_between( x, gains-gains_std, gains+gains_std, color=color_gains, alpha=0.2 )
+            self.fills['payoff']  = self.ax.fill_between( x, payoff-payoff_std, payoff+payoff_std, color=color_payoff, alpha=0.2 )
+            self.fills['hedge']   = self.ax.fill_between( x, -hedge-hedge_std, -hedge+hedge_std, color=color_hedge, alpha=0.2 )
 
         # below is pretty heuristic. If training works, below makes sense
         # as the gains process and the payoff are similar.
@@ -256,13 +265,13 @@ class Plot_Utility_By_CumPercentile(object): # NOQA
     Plot utility by return percentile. The final percentile is the objective.
     """
     
-    def __init__(self, *, fig, set_name, bins ): # NOQA
+    def __init__(self, *, fig, title, bins ): # NOQA
         
         self.bins   = bins
         self.line   = None
         self.line2  = None
         self.ax     = fig.add_subplot()            
-        self.ax.set_title("Utility by cummlative percentile\n(%s)" % set_name)
+        self.ax.set_title(title)
         self.ax.set_xlabel("Percentile")
         
     def update(self, *, P, utility, utility0 ):# NOQA
@@ -298,19 +307,20 @@ class Plot_Utility_By_CumPercentile(object): # NOQA
 # Show hedges by spot
 # -------------------------------------------------------
         
-class Plot_Activity_By_Spot(object): # NOQA
+class Plot_Activity_By_Spot_and_Time(object): # NOQA
     """
     Plot action or delta by spot return and time step.
     """
     
-    def __init__(self, *, fig, bins, slices, which_inst, activity_name, inst_name, set_name ): # NOQA
+    def __init__(self, *, fig, title, bins, slices, which_inst, with_std ): # NOQA
         self.bins       = bins
+        self.with_std   = with_std
         self.slices     = slices
         self.which_inst = which_inst
-        self.inst_name  = inst_name
         self.lines      = None
+        self.fills      = {}
         self.ax         = fig.add_subplot()
-        self.ax.set_title("%s by spot for %s\n(%s set)" % (activity_name, inst_name, set_name))
+        self.ax.set_title(title)
         self.ax.set_xlabel("Spot return")
         self.timeixs    = None
         
@@ -332,13 +342,17 @@ class Plot_Activity_By_Spot(object): # NOQA
         else:
             assert len(self.lines) == slices, "Internal error: found %ld lines instead of %ld" % (len(self.lines), slices)
 
+        for k in self.fills:
+            self.fills[k].remove()
+            
         for i,t in zip(range(len(self.timeixs)),self.timeixs):
             x     = spot_all[:,t] / spot_all[:,0] - 1.
             ixs   = np.argsort( x )
             x     = x[ixs]
             x     = mean_bins( x, bins=self.bins, weights=P )
 
-            act_t = mean_bins( actions[:,t][ixs], bins=self.bins, weights=P )
+            act_t,\
+            std_t = mean_bins( actions[:,t][ixs], bins=self.bins, weights=P, return_std=True )
             r     = 2. * (1. - float(t+1) / float(actions.shape[1]))
             c1    = max(min(r-1.,1.0),0.)
             c2    = max(min(r,1.0),0.) 
@@ -348,6 +362,9 @@ class Plot_Activity_By_Spot(object): # NOQA
             else:
                 self.lines[i].set_ydata( act_t )
 
+            if self.with_std:
+                self.fills["step%03ld" % i]   = self.ax.fill_between( x, act_t-std_t, act_t+std_t, color=(1.,c1,c2), alpha=0.2 )
+        
             min_ = np.min( act_t ) if min_ is None else min( min_, np.min(act_t) )
             max_ = np.max( act_t ) if max_ is None else max( max_, np.max(act_t) )
 
@@ -449,9 +466,9 @@ class Plotter(object):
         self.fig_col_size     = config.fig("col_size", 5, Int>0, "Plot size of a column")
         self.fig_col_nums     = config.fig("col_nums", 6, Int>0, "Number of columbs")
         self.err_dev          = config("err_dev", 1., Float>0., "How many standard errors to add to loss to assess best performance" )   
-        self.lookback_window  = config("lookback_window", 30, Int>3, "Lookback window for determining y min/max")
+        self.lookback_window  = config("lookback_window", 200, Int>3, "Lookback window for determining y min/max in graphs.")
         self.show_epochs      = config("show_epochs", 100, Int>3,  "Maximum epochs displayed")
-        self.bins             = config("bins", 200, Int>3, "How many x to plot")
+        self.bins             = config("bins", 100, Int>3, "How many x to plot")
         self.pcnt_lo          = config("confidence_pcnt_lo", 0.5, (Float > 0.) & (Float<=1.), "Lower percentile for confidence intervals")
         self.pcnt_hi          = config("confidence_pcnt_hi", 0.5, (Float > 0.) & (Float<=1.), "Upper percentile for confidence intervals")
         self.time_slices      = config("time_slices", 10, Int>0, "How many slice of spot action and delta to print")
@@ -495,14 +512,14 @@ class Plotter(object):
                 # a key aspect of using utility based pricing is that when we solve \sup_a U( Z + a dH ), we will get a non-zere value u* = U( Z + a* dH ) at the optimal point a*.
                 # This is the cash value of the position Z+a*dH, and it must be compared to the unhedged utility u0 = U(Z).
                 
-                self.plot_returns_by_spot_adj_ret      = Plot_Returns_By_Spot_Ret(      fig=self.fig, ret_name = "Returns less Utility", set_name="training set", bins=self.bins )
-                self.plot_returns_by_spot_ret          = Plot_Returns_By_Spot_Ret(      fig=self.fig, ret_name = "Raw Returns", set_name="training set", bins=self.bins )
-                self.plot_utility_by_cumpercentile     = Plot_Utility_By_CumPercentile( fig=self.fig, set_name = "training set", bins=self.bins )
+                self.plot_returns_by_spot_adj_ret      = Plot_Returns_By_Spot_Ret(      fig=self.fig, title = "Returns less Utility\n(training set)", bins=self.bins, with_std=False )
+                self.plot_returns_by_spot_adj_ret_std  = Plot_Returns_By_Spot_Ret(      fig=self.fig, title = "Returns less Utility (with std)\n(training set)", bins=self.bins, with_std=True )
+                self.plot_utility_by_cumpercentile     = Plot_Utility_By_CumPercentile( fig=self.fig, title = "Utility by cummulative percentile\n(training set)", bins=self.bins )
                 
                 # by performance - validation
-                self.val_plot_returns_by_spot_adj_ret  = Plot_Returns_By_Spot_Ret(      fig=self.fig, ret_name = "Returns less Utility", set_name="validation set", bins=self.bins )
-                self.val_plot_returns_by_spot_ret      = Plot_Returns_By_Spot_Ret(      fig=self.fig, ret_name = "Raw Returns", set_name="validation set", bins=self.bins )
-                self.val_plot_utility_by_cumpercentile = Plot_Utility_By_CumPercentile( fig=self.fig, set_name = "validation set", bins=self.bins )
+                self.val_plot_returns_by_spot_adj_ret  = Plot_Returns_By_Spot_Ret(      fig=self.fig, title = "Returns less Utility\n(validation set)", bins=self.bins, with_std=False )
+                self.val_plot_returns_by_spot_adj_ret_std = Plot_Returns_By_Spot_Ret(      fig=self.fig, title = "Returns less Utility (with std)\n(validation set)", bins=self.bins, with_std=True )
+                self.val_plot_utility_by_cumpercentile = Plot_Utility_By_CumPercentile( fig=self.fig, title = "Utility by cummulative percentile\n(validation set)", bins=self.bins )
     
                 self.fig.next_row()
     
@@ -510,8 +527,11 @@ class Plotter(object):
                 self.plot_actions_by_step          = Plot_Activity_By_Step(    fig=self.fig, activity_name="Action", set_name="training", pcnt_lo=self.pcnt_lo, pcnt_hi=self.pcnt_hi, inst_names=world.inst_names )
                 self.plot_deltas_by_step           = Plot_Activity_By_Step(    fig=self.fig, activity_name="Delta", set_name="training", pcnt_lo=self.pcnt_lo, pcnt_hi=self.pcnt_hi, inst_names=world.inst_names )
                 # activity by spot
-                self.plot_action0_by_step          = Plot_Activity_By_Spot(    fig=self.fig, bins=self.bins, slices=self.time_slices, which_inst=0, activity_name="Action", inst_name=world.inst_names[0], set_name="training")
-                self.plot_delta0_by_step           = Plot_Activity_By_Spot(    fig=self.fig, bins=self.bins, slices=self.time_slices, which_inst=0, activity_name="Delta", inst_name=world.inst_names[0], set_name="training")
+                self.plot_action0_by_step          = Plot_Activity_By_Spot_and_Time(    fig=self.fig, title="Spot action by time step\n(training set)", bins=self.bins, slices=self.time_slices, which_inst=0, with_std = False )
+                self.plot_delta0_by_step           = Plot_Activity_By_Spot_and_Time(    fig=self.fig, title="Spot delta by time step\n(training set)", bins=self.bins, slices=self.time_slices, which_inst=0, with_std = False )
+                # activity by spot, with std
+                self.plot_action0_by_step_std      = Plot_Activity_By_Spot_and_Time(    fig=self.fig, title="Spot action by time step (with std)\n(training set)", bins=self.bins, slices=self.time_slices, which_inst=0, with_std = True )
+                self.plot_delta0_by_step_std       = Plot_Activity_By_Spot_and_Time(    fig=self.fig, title="Spot delta by time step (with std)\n(training set)", bins=self.bins, slices=self.time_slices, which_inst=0, with_std = True )
     
                 self.fig.render()
             
@@ -537,7 +557,7 @@ class Plotter(object):
                 adjusted_training_payoff = progress_data.training_result.payoff - mean(world.sample_weights, progress_data.training_result.utility0)
                 adjusted_training_hedge  = adjusted_training_gains - adjusted_training_payoff
                 self.plot_returns_by_spot_adj_ret.update( P=world.sample_weights, gains=adjusted_training_gains, hedge=adjusted_training_hedge, payoff=adjusted_training_payoff, spot_ret=spot_ret )
-                self.plot_returns_by_spot_ret.update( P=world.sample_weights, gains=progress_data.training_result.gains, hedge=progress_data.training_result.gains - progress_data.training_result.payoff, payoff=progress_data.training_result.payoff, spot_ret=spot_ret )
+                self.plot_returns_by_spot_adj_ret_std.update( P=world.sample_weights, gains=adjusted_training_gains, hedge=adjusted_training_hedge, payoff=adjusted_training_payoff, spot_ret=spot_ret )
                 self.plot_utility_by_cumpercentile.update( P=world.sample_weights, utility=progress_data.training_result.utility, utility0=progress_data.training_result.utility0 )
                 
                 # by performance - validation
@@ -545,7 +565,7 @@ class Plotter(object):
                 adjusted_val_payoff = progress_data.val_result.payoff - mean(val_world.sample_weights, progress_data.val_result.utility0)
                 adjusted_val_hedge  = adjusted_val_gains - adjusted_val_payoff
                 self.val_plot_returns_by_spot_adj_ret.update( P=val_world.sample_weights, gains=adjusted_val_gains, hedge=adjusted_val_hedge, payoff=adjusted_val_payoff, spot_ret=val_spot_ret)
-                self.val_plot_returns_by_spot_ret.update( P=val_world.sample_weights, gains=progress_data.val_result.gains, hedge=progress_data.val_result.gains - progress_data.val_result.payoff, payoff=progress_data.val_result.payoff, spot_ret=val_spot_ret )
+                self.val_plot_returns_by_spot_adj_ret_std.update( P=val_world.sample_weights, gains=adjusted_val_gains, hedge=adjusted_val_hedge, payoff=adjusted_val_payoff, spot_ret=val_spot_ret)
                 self.val_plot_utility_by_cumpercentile.update( P=val_world.sample_weights, utility=progress_data.val_result.utility, utility0=progress_data.val_result.utility0 )
                 
                 # activity by step
@@ -556,7 +576,9 @@ class Plotter(object):
         
                 # activity by time and spot
                 self.plot_action0_by_step.update( P=world.sample_weights, actions=progress_data.training_result.actions, spot_all= world.details.spot_all, spot_ret=spot_ret )
+                self.plot_action0_by_step_std.update( P=world.sample_weights, actions=progress_data.training_result.actions, spot_all= world.details.spot_all, spot_ret=spot_ret )
                 self.plot_delta0_by_step.update( P=world.sample_weights, actions=deltas, spot_all= world.details.spot_all, spot_ret=spot_ret )
+                self.plot_delta0_by_step_std.update( P=world.sample_weights, actions=deltas, spot_all= world.details.spot_all, spot_ret=spot_ret )
         
                 self.fig.render()
 
@@ -575,7 +597,7 @@ class Plotter(object):
         str_num_weights   = fmt_big_number( training_info.num_weights )
         
         str_sys   = "memory used: rss %gM, vms %gM" % ( progress_data.process.memory_rss[-1], progress_data.process.memory_vms[-1] )
-        str_cache = "" if last_cached_epoch == -1 else ("; last cached %ld" % last_cached_epoch)
+        str_cache = "" if last_cached_epoch == -1 else ("; last cached %ld" % (last_cached_epoch+1))
         str_intro = "Training %ld/%ld epochs; %s weights; %ld samples; %ld validation samples batch size %ld" % ( progress_data.epoch+1, training_info.epochs, str_num_weights, world.nSamples, val_world.nSamples, training_info.batch_size if not training_info.batch_size is None else 32)
         str_perf  = "initial loss %g (%g), training %g (%g), best %g (%g), batch %g, val %g (%g). Best epoch %ld%s." % ( \
                                         progress_data.init_loss, progress_data.init_loss_err, \
@@ -583,7 +605,7 @@ class Plotter(object):
                                         progress_data.best_loss, progress_data.best_loss_err, \
                                         batch_loss, \
                                         val_loss_mean, val_loss_err, \
-                                        progress_data.best_epoch,\
+                                        progress_data.best_epoch+1,\
                                         str_cache)
         str_time  = "time elapsed %s; time per epoch %s; estimated time remaining %s" % ( fmt_seconds(total_time_passed), fmt_seconds(time_per_epoch), fmt_seconds(time_left) )        
         print("\r\33[2K%s | %s | %s | %s                        " % ( str_intro, str_perf, str_sys, str_time ), end='')

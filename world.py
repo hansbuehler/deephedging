@@ -142,13 +142,20 @@ class SimpleWorld_Spot_ATM(object):
         # payoff
         # ------
         # must either be a function of spots[samples,steps+1], None, or a fixed umber
-        payoff_f  = config("payoff", lambda spots : - np.maximum( spots[:,-1] - 1, 0. ), help="Payoff function with parameter spots[samples,steps+1]. Must return a vector [samples]. The default is a short call with strike 1: '- np.maximum( spots[:,-1] - 1, 0. )'. A short forward starting ATM call is given as '- np.maximum( spots[:,-1] - spots[:,0], 0. )'. You can also use None for zero, or a simple float.", help_default="Short call with strike 1")
+        payoff_f  = config("payoff", "atmcall", help="Payoff function with parameter spots[samples,steps+1]. Can be a function which must return a vector [samples]. Can also be short 'atmcall' or short 'atmput', or a fixed numnber. The default is 'atmcall' which is a short call with strike 1: '- np.maximum( spots[:,-1] - 1, 0. )'. A short forward starting ATM call is given as '- np.maximum( spots[:,-1] - spots[:,0], 0. )'.")
         if payoff_f is None:
             # None means zero.
-            payoff_f = lambda x : np.zeros( (x.shape[0], ) )
+            payoff_f = np.zeros( (nSamples, ) )
         elif isinstance(payoff_f, (int,float)):
             # specify terminal payoff as a fixed number, e.g. 0
-            payoff_f = lambda x : np.full( (x.shape[0],), float(payoff_f) )
+            payoff_f = np.full( (nSamples,), float(payoff_f) )
+        elif isinstance(payoff_f, str):
+            if payoff_f == "atmcall":
+                payoff_f = lambda spots : - np.maximum( spots[:,-1] - 1., 0. )
+            elif payoff_f == "atmput":
+                payoff_f = lambda spots : - np.maximum( 1. - spots[:,-1], 0. )
+            else:
+                _log.throw("Unknown 'payoff' '%s'", payoff_f)
 
         # market dynamics
         # ---------------
@@ -321,10 +328,14 @@ class SimpleWorld_Spot_ATM(object):
         # payoff
         # ------
         
-        payoff    = payoff_f( spot[:,:nSteps+2] )
-        payoff    = payoff[:,0] if payoff.shape == (nSamples,1) else payoff
-        _log.verify( payoff.shape == (nSamples,), "'payoff' function which receives a vector spots[nSamples,nSteps+1] must return a vector of size nSamples. Found shape %s", payoff.shape )
-        
+        if not isinstance(payoff_f, np.ndarray):
+            payoff    = payoff_f( spot[:,:nSteps+2] )
+            payoff    = payoff[:,0] if payoff.shape == (nSamples,1) else payoff
+            _log.verify( payoff.shape == (nSamples,), "'payoff' function which receives a vector spots[nSamples,nSteps+1] must return a vector of size nSamples. Found shape %s", payoff.shape )
+        else:
+            _log.verify( payoff_f.shape == (nSamples,), "'payoff' if a vector is provided, its size must match the sample size. Expected shape %s, found %s", (nSamples,), payoff_f.shape )
+            payoff     = payoff_f
+            
         # unique_id:
         # Default handling for configs will ignore any function definitions, e.g. in this case 'payoff'.
         # we therefore manually generate a sufficient hash

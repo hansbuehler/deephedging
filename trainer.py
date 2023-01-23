@@ -197,7 +197,7 @@ class Monitor(tf.keras.callbacks.Callback):
                         self.progress_data = cache['progress_data']
                         _log.verify( self.progress_data.epoch >= 0, "Error: object restored from cache had epoch set to %ld", self.progress_data.epoch )
                         self.cache_last_epoch = self.progress_data.epoch
-                        if not self.plotter is None: print("Cache successfully loaded. Current epoch: %ld" % self.progress_data.epoch )
+                        if not self.plotter is None: print("Cache successfully loaded. Current epoch: %ld" % (self.progress_data.epoch+1) )
 
         # initialize timing
         if self.progress_data.epoch+1 >= training_info.epochs:
@@ -277,7 +277,7 @@ class Monitor(tf.keras.callbacks.Callback):
         cached_msg = ""
         if self.progress_data.epoch >= 0 and self.cache_mode.write:
             self.write_cache()
-            cached_msg = " State of training until epoch %ld cached into %s\n" % (self.cache_last_epoch, self.full_cache_file)
+            cached_msg = " State of training until epoch %ld cached into %s\n" % (self.cache_last_epoch+1, self.full_cache_file)
 
         # restore best weights
         self.progress_data.set_best_weights( gym=self.gym, world=self.world, val_world=self.val_world )
@@ -291,7 +291,7 @@ class Monitor(tf.keras.callbacks.Callback):
                          training_info     = self.training_info )
             self.plotter.close()
                 
-        if not self.plotter is None: print("\n Status: %s.\n Weights set to best epoch: %ld\n%s" % (status, self.progress_data.best_epoch,cached_msg) )
+        if not self.plotter is None: print("\n Status: %s.\n Weights set to best epoch: %ld\n%s" % (status, self.progress_data.best_epoch+1,cached_msg) )
     
     def write_cache(self):
         """ Write cache to disk """

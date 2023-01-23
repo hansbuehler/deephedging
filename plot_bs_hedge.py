@@ -27,6 +27,7 @@ def plot_blackscholes( world, gym, config, strike : float = 1., iscall : bool = 
     costs   = world.data.market.cost[:,:,0]
     actions = npCast( r.actions )[:,:,0]   # only one asset
     deltas  = np.cumsum( actions, axis=1 )
+    time_left = world.data.features.per_step.time_left
     dhpnl   = npCast( r.pnl )
     payoff  = npCast( r.payoff )
 
@@ -34,10 +35,12 @@ def plot_blackscholes( world, gym, config, strike : float = 1., iscall : bool = 
     utility0 = mean( world.sample_weights, npCast( r.utility0 ) )
     dprice   = utility - utility0
     
-    assert actions.shape == spot.shape, "Error: expected 'spots' and 'actions' to have same dimension. Found %s and %s" % (spot.shape,actions.shape)
-    assert hedges.shape == spot.shape, "Error: expected 'spots' and 'hedges' to have same dimension. Found %s and %s" % (spot.shape,hedges.shape)
+    assert actions.shape == spot.shape, "Error: expected 'spots' and 'actions' to have same dimension. Found %s and %s" % (str(spot.shape),str(actions.shape))
+    assert hedges.shape == spot.shape, "Error: expected 'spots' and 'hedges' to have same dimension. Found %s and %s" % (str(spot.shape),str(hedges.shape))
+    assert time_left.shape == spot.shape, "Error: %s != %s" % (str(time_left.shape),str(spot.shape))
     
     # load data for BS computation
+    # TODO: do not use 'dt' but timeline
     dt       = config.world.get_raw("dt", 1./50.)
     vol      = config.world.get_raw("rvol", 0.2)
     #drift    = config.world.get_recorded("drift")  # WARNING. This is the real-life drift *NOT* the risk-neutral drift.
@@ -97,10 +100,12 @@ def plot_blackscholes( world, gym, config, strike : float = 1., iscall : bool = 
         # sort by spot at j, and compute BS refernece
         spot_t    = spot[:,j]
         delta_t   = deltas[:,j]
-        hedges_t  = hedges[:,j]
+        hedges_t  = hedges[:,j]   # S(T)-S(t_j)
         cost_t    = costs[:,j]
         t         = float(j) * dt
-        res_t     = float(time_steps-j) * dt 
+        res_t_    = float(time_steps-j) * dt # res_t == dt if j==time_steps-1
+        res_t     = time_left[0,j] # float(time_steps-j) * dt # res_t == dt if j==time_steps-1
+        assert abs(res_t - res_t_) < 1E-8, "Error: dt?? res_t=%g != res_t_=%g timesteps=%ld, j=%ld, dt=%g" % (res_t, res_t_, time_steps, j, dt)
         
         # BS
         # note that the 'drift' in the simulator is the statistical drift, not the risk-neutral drift.
@@ -177,7 +182,7 @@ def plot_blackscholes( world, gym, config, strike : float = 1., iscall : bool = 
     print("Running tensorflow to compute utility of BS strategy ...", end='')
     utilityBS = train_utillity( gym.utility, world, payoff = payoff, pnl = bspnl, cost = bscost, config=tconfig )
     utilityBS = utilityBS[0]
-    print("done; result %g", utilityBS)
+    print("done; result %g" % utilityBS)
 
     # bin pnl
     ixs        = np.argsort( spotT )            

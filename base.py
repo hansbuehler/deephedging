@@ -245,12 +245,14 @@ def mean_bins( x : np.ndarray, bins : int, weights = None, return_std = False ) 
         Numpy array of bins, or tuple of means and std devs of return_std is True
     """
     def w_mean_err(x,p,i1,i2):
-        pp = np.sum( p[i1:i2] )
-        if pp<=0.:
+        p_ = p[i1:i2]
+        x_ = x[i1:i2]
+        pp = np.sum( p_ )
+        if pp<=1E-12:
             return 0.,0.
-        mean = np.sum( (x*p)[i1:i2] ) / pp
-        esq  = np.sum( (x*x*p)[i1:i2] ) / pp
-        err  = math.sqrt( esq - mean*mean*pp )
+        mean = np.sum( p_*x_ ) / pp
+        var  = np.sum( p_*((x_-mean)**2) ) / pp
+        err  = math.sqrt( var )
         return [ mean, err ]
     
     x        = np.asarray(x)

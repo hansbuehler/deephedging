@@ -102,6 +102,10 @@ class SimpleDenseAgent(tf.keras.layers.Layer):
         if self.nStates == 0:
             return self._layer(all_features, training=training), None
         
+        state        = all_features[self.State_Feature_Name]
+        state        = tf.math.tanh(state)
+        all_features = dict(all_features)
+        all_features[self.State_Feature_Name] = state
         action_state = self._layer(all_features, training=training)
         return action_state[:,:self.nInst], action_state[:,self.nInst:]
 

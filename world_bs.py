@@ -114,13 +114,23 @@ class SimpleWorld_BS(object):
         _log.verify( ubnd_a - lbnd_a > 0., "'ubnd_a' (%g) must be bigger than 'lbnd_as' (%g)", ubnd_a, lbnd_a )
 
         # payoff
+        # ------
         # must either be a function of spots[samples,steps+1], None, or a fixed umber
-        payoff_f  = config("payoff", lambda spots : - np.maximum( spots[:,-1] - 1, 0. ),\
-                               help="Payoff function with parameter spots[samples,steps+1]."\
-                                    "Must return a vector [samples]. The default is a short call with strike 1: '- np.maximum( spots[:,-1] - 1, 0. )'."\
-                                    "A short forward starting ATM call is given as '- np.maximum( spots[:,-1] - spots[:,0], 0. )'."\
-                                    "You can also use None for zero, or a simple float for a ",
-                               help_default="Short call with strike 1")
+        payoff_f  = config("payoff", "atmcall", help="Payoff function with parameter spots[samples,steps+1]. Can be a function which must return a vector [samples]. Can also be short 'atmcall' or short 'atmput', or a fixed numnber. The default is 'atmcall' which is a short call with strike 1: '- np.maximum( spots[:,-1] - 1, 0. )'. A short forward starting ATM call is given as '- np.maximum( spots[:,-1] - spots[:,0], 0. )'.")
+        if payoff_f is None:
+            # None means zero.
+            payoff_f = np.zeros( (nSamples, ) )
+        elif isinstance(payoff_f, (int,float)):
+            # specify terminal payoff as a fixed number, e.g. 0
+            payoff_f = np.full( (nSamples,), float(payoff_f) )
+        elif isinstance(payoff_f, str):
+            if payoff_f == "atmcall":
+                payoff_f = lambda spots : - np.maximum( spots[:,-1] - 1., 0. )
+            elif payoff_f == "atmput":
+                payoff_f = lambda spots : - np.maximum( 1. - spots[:,-1], 0. )
+            else:
+                _log.throw("Unknown 'payoff' '%s'", payoff_f)
+
         config.done()
         
         # path generator
@@ -144,10 +154,7 @@ class SimpleWorld_BS(object):
         # payoff
         # ------
         
-        if payoff_f is None:
-            # None means zero.
-            payoff_f = lambda x : np.zeros( (x.shape[0], ) )
-        elif isinstance(payoff_f, np.ndarray):
+        if isinstance(payoff_f, np.ndarray):
             _log.verify( payoff_f.shape == (nSamples,), "'payoff': if a numpy array is provided, it must have shape (samples,). Found %s while samples is %ld", payoff_f.shape, nSamples )
         else:
             payoff    = payoff_f( spot[:,:nSteps+1] )
