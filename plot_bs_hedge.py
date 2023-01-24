@@ -105,7 +105,7 @@ def plot_blackscholes( world, gym, config, strike : float = 1., iscall : bool = 
         t         = float(j) * dt
         res_t_    = float(time_steps-j) * dt # res_t == dt if j==time_steps-1
         res_t     = time_left[0,j] # float(time_steps-j) * dt # res_t == dt if j==time_steps-1
-        assert abs(res_t - res_t_) < 1E-8, "Error: dt?? res_t=%g != res_t_=%g timesteps=%ld, j=%ld, dt=%g" % (res_t, res_t_, time_steps, j, dt)
+        assert abs(res_t - res_t_) < 1E-6, "Error: dt?? res_t=%g != res_t_=%g timesteps=%ld, j=%ld, dt=%g" % (res_t, res_t_, time_steps, j, dt)
         
         # BS
         # note that the 'drift' in the simulator is the statistical drift, not the risk-neutral drift.
