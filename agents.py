@@ -59,8 +59,10 @@ class SimpleDenseAgent(tf.keras.layers.Layer):
         state_features          = config.state("features", [], list, "Named features for the agent to use for the initial state network")
         init_delta_features     = config.init_delta("features", [], list, "Named features for the agent to use for the initial delta network")
         init_delta              = config.init_delta("active", True, bool, "Whether or not to train in addition a delta layer for the first step")
-        self.nStates            = config("recurrence", 0, Int>=0, "Number of recurrent states. Set to zero to turn off recurrence")
+        self.nContStates        = config("recurrence",   0, Int>=0, "Number of real recurrent states. Set to zero to turn off recurrence")
+        self.nDigitalStates     = config("recurrence01", 0, Int>=0, "Number of digital recurrent states. Set to zero to turn off recurrence")
         self.nInst              = int(nInst)
+        self.nStates            = self.nContStates + self.nDigitalStates
         
         default_state = Config()
         default_state.depth    = 1
@@ -102,10 +104,18 @@ class SimpleDenseAgent(tf.keras.layers.Layer):
         if self.nStates == 0:
             return self._layer(all_features, training=training), None
         
-        state        = all_features[self.State_Feature_Name]
-        state        = tf.math.tanh(state)
+        # map states into [-1,+1]
         all_features = dict(all_features)
+        state        = all_features[self.State_Feature_Name]
+        state        = tf.math.tanh(state, name="tanh_state")
+        if self.nDigitalStates > 0:
+            cont_state = state[:,:self.nContStates] if self.nContStates > 0 else None
+            digi_state = state[:,self.nContStates:]
+            digi_state = tf.where( digi_state >= 0., 1., 0., name="digital_state" )
+            state      = tf.concat( [cont_state,digi_state], axis = 1, name="cont_digital_state") if self.nContStates > 0 else digi_state
         all_features[self.State_Feature_Name] = state
+
+        # execute
         action_state = self._layer(all_features, training=training)
         return action_state[:,:self.nInst], action_state[:,self.nInst:]
 

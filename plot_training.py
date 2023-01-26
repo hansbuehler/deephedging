@@ -163,13 +163,12 @@ class Plot_Memory_By_Epoch(object): # NOQA
         
         self._min             = None
         self._max             = None
-        self.epochs           = epochs
         self.ax               = fig.add_subplot()
         self.ax.set_title("Memory usage by epoch")
-        self.ax.set_xlim(0,epochs)
+        self.ax.set_xlim(0,epochs+1)
         self.ax.set_xlabel("Epochs")
         self.ax.set_ylabel("Memory (GB)")
-        self._x                = np.linspace(0,self.epochs,self.epochs+1,endpoint=True,dtype=np.int32)
+        self._x                = np.linspace(0,epochs,epochs+1,endpoint=True,dtype=np.int32)
         
     def update(self, *, epoch, process_info ): # NOQA
             
@@ -178,7 +177,10 @@ class Plot_Memory_By_Epoch(object): # NOQA
 
         first = self._min is None
         l     = len(process_info.memory_rss)
-        assert l <= len(self._x), "Internal error: %ld, %ld" % ( l, len(self._x) )
+        if l > len(self._x):
+            # this can happen if a cached objkect was trained for more epochs than currently requested
+            self._x                = np.linspace(0,l-1,l,endpoint=True,dtype=np.int32)
+            self.ax.set_xlim(0,l)
             
         if first:
             self.line_rss = self.ax.plot( self._x[:l], memory_rss, label="rss", color="blue" )[0]

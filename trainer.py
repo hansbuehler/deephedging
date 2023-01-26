@@ -203,7 +203,7 @@ class Monitor(tf.keras.callbacks.Callback):
         if self.progress_data.epoch+1 >= training_info.epochs:
             if not self.plotter is None: print( \
                    "Nothing to do: cached model loaded from %s was trained for %ld epochs; you have asked to train for %ld epochs. "\
-                   "Raise number of epochs or turn off caching to re-start training.\n\nPlotting results for the trained model.\n" % \
+                   "If you want to force training: raise number of epochs or turn off caching.\n\nPlotting results for the trained model.\n" % \
                    ( self.full_cache_file, self.progress_data.epoch+1, training_info.epochs ) )
         self.time0 = time.time()
 
