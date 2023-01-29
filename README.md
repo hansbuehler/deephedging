@@ -24,6 +24,8 @@ You can now write
 
 * **TensorFlow loops** (Jan 29th, 2023): the code no longer unrolls the core Deep Hedging loop, but uses `tf_while` implicitly. This helps preserving memory when many time steps are used.
 
+* **GPU speed up** (Jan 29th, 2023): the new code base benefits much more from the presence of a GPU than the old version, when large sample sizes are used. The notebook `notebooks/trainer-recurrent-fwdstart.ipynb` runs ~four times faster on GPUs.
+
 * **TensorBoard** (Jan 29th, 2023): added support for TensorBoard. See `notebooks/trainer-board.ipynb`. However, I did not manage to make it run on SageMaker, neither did I manage to run the profiler on my own machine.
 
 * **Visualization Update** (Jan 29th, 2023): improved visualization during training by adding (a) a view on spot delta and actions, and by adding several views which include the stddev from the mean per plotted bin.  Also added better information on network setup and features used.
@@ -190,6 +192,8 @@ Once you have identified the correct drivers, use
         conda install -c conda-forge cudatoolkit=11.2 cudnn=8.1
         
 The notebooks in the git directory will print the number of available CPUs and GPUs.
+
+The latest version of Deep Hedging _will_ benefit massively from the presence of a GPU if large batch sizes are used. For example `notebooks/trainer-recurrent-fwdstart.ipynb` experiences a speed up from just under 2 hours to less than 30mins on a `p3.2xlarge` as opposed to a `c5.4xlarge`.
 
 ## Industrial Machine Learning Code Philosophy
 
