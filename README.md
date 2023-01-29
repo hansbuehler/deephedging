@@ -130,15 +130,66 @@ on fully machine learned market simulators such as https://arxiv.org/abs/2112.06
 
 ## Installation
 
-See `requirements.txt` for latest version requirements. At the time of writing this markdown file:
+See `requirements.txt` for latest version requirements. At the time of writing this markdown these are
 * Use Python 3.7 or later
 * Pip (or conda) install `cdxbasics` version 0.2.9 or higher
-* Install TensorFlow 2.7 or higher
-* Install tensorflow_probability 0.15 or higher, c.f. https://anaconda.org/conda-forge/tensorflow-probability
+* Install TensorFlow 2.7 or higher, ideally 2.10 or better.
+* Install tensorflow_probability 0.15 or higher, c.f. https://anaconda.org/conda-forge/tensorflow-probability. 
+
+    <small>Deep Hedging uses `tensorflow-probability` which does _not_ provide a robust dependency to the installed TensorFlow version. If you receive an error you will need to make sure manually that it matches to your tensorflow version [here](https://github.com/tensorflow/probability/releases).</small>
+
 * Download this git directory in your Python path such that `import deephedging.world` works.
 * Open `notebooks/trainer.ipynb` and run it. 
 
-See below for more comments on installation, and on using AWS and GPUs.
+#### Anaconda
+
+In your local conda environment use the following:
+        
+        conda install "cdxbasics>=0.2.11" -c hansbuehler
+        conda install -c conda-forge tensorflow>=2.10
+        conda install -c conda-forge tensorflow-probability==0.14
+
+At the time of writing, this gives you TensowFlow 2.10 and the correct `tensorflow-probability` version 0.14. 
+Then check that the following works:
+                
+        import tensorflow as tf
+        import tensorflow_probability as tfp # ensure this does not fail
+        print("TF version %s. Num GPUs Available: %ld" % (tf.__version__, len(tf.config.list_physical_devices('GPU')) ))  # should give you the tenosr flow version and whether it found any GPUs
+
+#### AWS SageMaker
+
+(29/1/2023) Finally AWS SageMaker supports TensorFlow 2.10 with and without GPU with the conda environment `conda_tensorflow2_p310`. It is still pretty buggy (e.g. conda is inconsistent out of the box) but seems to work. AWS tends to change their available conda packages, so check which one is available when you are trying this.
+
+In order to run Deep Hedging, launch a decent AWS SageMaker instance such as `ml.c5.2xlarge`.
+Open a terminal and write:
+        
+        bash
+        conda activate tensorflow2_p310
+        python -m pip install --upgrade pip
+        pip install cdxbasics tensorflow_probability==0.14  
+
+The reason we are using `pip` here an not `conda` is that `conda_tensorflow2_p310` is inconsistent, so using `conda` is pretty unreliable and very slow. Either way, above should give you an environemnt with Tensorflow 2.10, including with GPU support if your selected instance has GPUs. (Note that GPUs do not seem to bring benefits with the current code base.) 
+
+If you have cloned the [Deep Hedging git directory](https://github.com/hansbuehler/deephedging) via SageMaker, then the `deephedging` directory is <i>not</i> in your include path, even if the directory shows up in your jupyter hub file list. That is why I've added some magic code on top of the various noteooks:
+
+    import os
+    p = os.getcwd()
+    dhn = "/deephedging"
+    i = p.find(dhn)
+    if i!=-1:
+        p = p[:i]
+        import sys
+        sys.path.append(p)
+        print("SageMaker: added python path %s" % p)
+
+#### GPU
+
+In order to run on GPU you must have installed the correct CUDA and cuDNN drivers, see [here](https://www.tensorflow.org/install/source#gpu). This seems to have been done on AWS. 
+Once you have identified the correct drivers, use
+
+        conda install -c conda-forge cudatoolkit=11.2 cudnn=8.1
+        
+The notebooks in the git directory will print the number of available CPUs and GPUs.
 
 ## Industrial Machine Learning Code Philosophy
 
@@ -506,64 +557,6 @@ Tools
     
 
 
-# Installation Support
-
-### TensorFlow and Python
-
-Deep Hedging was developed using Tensorflow 2.7 on Python 37. The latest version seems to run with TF 2.6 on Python 3.6 as well. Check version compatibility between TensorFlow and Python [here](https://www.tensorflow.org/install/source#cpu). The main difference is that TF before 2.7 expects tensors of dimension `(nBatch)` to be passed as `(nBatch,1)`.
-
-Deep Hedging uses `tensorflow-probability` which does _not_ provide a robust dependency to the installed TensorFlow version. If you receive an error you will need to make sure manually that it matches to your tensorflow version [here](https://github.com/tensorflow/probability/releases).
-
-In your local conda environment use the following (latest version requirements can be found in `requirements.txt`):
-        
-        conda install "cdxbasics>=0.2.9" -c hansbuehler
-        conda install -c conda-forge tensorflow>=2.10
-        conda install -c conda-forge tensorflow-probability==0.14
-
-At the time of writing, this gives you TensowFlow 2.10 and the correct `tensorflow-probability` version 0.14.
-Then check that the following works:
-                
-        import tensorflow as tf
-        import tensorflow_probability as tfp # ensure this does not fail
-        print("TF version %s. Num GPUs Available: %ld" % (tf.__version__, len(tf.config.list_physical_devices('GPU')) ))  # should give you the tenosr flow version and whether it found any GPUs
-        
-See also below for comments on GPU use.
-
-### AWS SageMaker
-
-(29/1/2023) Finally AWS SageMaker supports TensorFlow 2.10 with and without GPU with the conda environment `conda_tensorflow2_p310`. It is still pretty buggy (e.g. conda is inconsistent out of the box) but seems to work. AWS tends to change their available conda packages, so check which one is available when you are trying this.
-
-In order to run Deep Hedging, launch a decent AWS SageMaker instance such as `ml.c5.2xlarge`.
-Open a terminal and write:
-        
-        bash
-        conda activate tensorflow2_p310
-        python -m pip install --upgrade pip
-        pip install cdxbasics tensorflow_probability==0.14  
-
-The reason we are using `pip` here an not `conda` is that `conda_tensorflow2_p310` is inconsistent, so using `conda` is pretty unreliable and very slow. Either way, above should give you an environemnt with Tensorflow 2.10, including with GPU support if your selected instance has GPUs. (Note that GPUs do not seem to bring benefits with the current code base.) 
-
-If you have cloned the [Deep Hedging git directory](https://github.com/hansbuehler/deephedging) via SageMaker, then the `deephedging` directory is <i>not</i> in your include path, even if the directory shows up in your jupyter hub file list. That is why I've added some magic code on top of the various noteooks:
-
-    import os
-    p = os.getcwd()
-    dhn = "/deephedging/"
-    i = p.find(dhn)
-    if i!=-1:
-        p = p[:i]
-        import sys
-        sys.path.append(p)
-        print("SageMaker: added python path %s" % p)
-
-### GPU
-
-In order to run on GPU you must have installed the correct CUDA and cuDNN drivers, see [here](https://www.tensorflow.org/install/source#gpu). This seems to have been done on AWS. 
-
-Once you have identified the correct drivers, use
-
-        conda install -c conda-forge cudatoolkit=11.2 cudnn=8.1
-        
-Run the code above (*) to check whether it picked up your GPU. Make sure you have one on the instance you are working on. <i>Note that Deep Hedging does not benefit much from GPU use.</i>
 
 
 
