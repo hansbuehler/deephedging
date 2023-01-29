@@ -8,69 +8,299 @@ June 30, 2022
 @author: hansbuehler
 """
 
-from .base import Logger, Config, tf, Int, Float
-from .plot_training import NotebookMonitor
+#from .base import Logger, npCast, fmt_seconds, mean, err, tf, mean_bins, mean_cum_bins, perct_exp, Int, Float, fmt_big_number, fmt_list
+from .base import Logger, Config, tf, Int, Float, mean, err, npCast, fmt_list, fmt_big_number, fmt_seconds, create_optimizer, TF_VERSION#NOQA
+from .plot_training import Plotter
+from .gym import VanillaDeepHedgingGym
+from cdxbasics.prettydict import PrettyDict as pdct
+from cdxbasics.util import uniqueHash
+from cdxbasics.config import Config
+from cdxbasics.subdir import SubDir, uniqueFileName48, CacheMode
+import time as time
+import numpy as np # NOQA
+import psutil as psutil
+import inspect as inspect
+import os as os
+
 _log = Logger(__file__)
 
-class NoMonitor(tf.keras.callbacks.Callback):
-    """ Does nothing. Sort of base class for Monitors """
+# =========================================================================================
+# Monitor
+# =========================================================================================
+
+class TrainingInfo(object):
+    """ Information on the current training run """
     
-    def __init__(self, gym, world, val_world, result0, epochs, batch_size, time_out, config_visual, config_caching ):# NOQA
-        tf.keras.callbacks.Callback.__init__(self)
-        self.epochs           = epochs
-        self.epoch            = -1
-        self.why_stopped      = "Ran all %ld epochs" % epochs
+    def __init__(self, *, batch_size, epochs, output_level, num_weights):#NOQA
+        self.epochs       = epochs       # epochs requested by the user. Note that the actual epochs will be reduced by the number of epochs already trained in the cached file
+        self.batch_size   = batch_size   # batch size.
+        self.output_level = output_level # one of: 'quiet', 'text', 'all'
+        self.num_weights  = num_weights  # number of trainable weights
+        assert self.output_level in ['quiet', 'text', 'all'], "Invalid 'output_level': should be 'quiet', 'text', or 'all'. Found %s" % output_level
+
+class TrainingProgressData(object):
+    """
+    Class to keep track of data for printing progress during training
+    This object is serialized to desk upon caching
+    """
+    
+    def __init__(self, *, gym, world, val_world, result0 ):
+        """ Initialize data """
+        self.result0          = result0                     # initil results from calling gym() on the training set
+        self.training_result  = None                        # full results corresponding to current weights, training set
+        self.val_result       = None                        # full results corresponding to current weights, validation set
+        self.times            = []                          # times per epoch
         
+        # track progress
+        self.losses            = pdct()
+        self.losses.batch      = []                         # losses for last batch (from tensorflow)
+        self.losses.training   = []                         # losses for training set (manually computed)
+        self.losses.val        = []                         # losses for validation set (manually computed)
+        self.losses_err        = pdct()
+        self.losses_err.training = []                       # std error for training loss
+        self.losses_err.val      = []                       # std error for validation loss
+
+        self.init_loss         = mean( world.sample_weights, result0.loss )
+        self.init_loss_err     = err( world.sample_weights, result0.loss )
+        self.best_loss         = self.init_loss 
+        self.best_loss_err     = self.init_loss_err
+        self.best_weights      = gym.get_weights()
+        self.best_epoch        = -1
+        
+        self.utilities         = pdct()
+        self.utilities.training_util      = []           # utility value of the hedged payoff for training set
+        self.utilities.training_util0     = []           # utility value of the payoff for training set
+        self.utilities.training_util_err  = []           # errors for the above
+        self.utilities.training_util0_err = []
+        self.utilities.val_util           = []           # validation set for the above
+        self.utilities.val_util0          = []
+        
+        # process information: this vector is len+1 as it includes the initial state
+        self.process = pdct()
+        p = psutil.Process()
+        with p.oneshot():
+            self.process.memory_rss = [ p.memory_info().rss / (1024.*1024.) ]
+            self.process.memory_vms = [ p.memory_info().vms / (1024.*1024.) ]
+                
+    @property
+    def epoch(self):
+        """ Returns the current epoch. Returns -1 if no epoch was yet recorded """
+        return len(self.times)-1
+
+    def on_epoch_end( self, *, gym, world, val_world, loop_epoch, time_epoch, batch_loss ):
+        """ Update data set with the latest results """
+        self.training_result = npCast( gym(world.tf_data) )
+        self.val_result      = npCast( gym(val_world.tf_data) )
+        self.times.append( time_epoch )
+
+        # losses
+        # Note that we apply world.sample_weights to all calculations
+        # so we are in sync with keras.fit()
+        self.losses.batch.append(       batch_loss )
+        self.losses.training.append(    mean(world.sample_weights, self.training_result.loss) )
+        self.losses.val.append(         mean(val_world.sample_weights, self.val_result.loss) )
+        self.losses_err.training.append( err(world.sample_weights,self.training_result.loss) )
+        self.losses_err.val.append(      err(val_world.sample_weights,self.val_result.loss) )
+        
+        # utilities
+        self.utilities.training_util.append(     mean(world.sample_weights, self.training_result.utility ) )
+        self.utilities.training_util0.append(    mean(world.sample_weights, self.training_result.utility0) )
+        self.utilities.training_util_err.append( err( world.sample_weights, self.training_result.utility ) )
+        self.utilities.training_util0_err.append(err( world.sample_weights, self.training_result.utility0) )
+        self.utilities.val_util.append(      mean(val_world.sample_weights, self.val_result.utility ) )
+        self.utilities.val_util0.append(     mean(val_world.sample_weights, self.val_result.utility0 ) )
+        
+        # store best loss
+        if self.losses.training[-1] < self.best_loss:
+            self.best_loss         = self.losses.training[-1]
+            self.best_loss_err     = self.best_loss_err
+            self.best_weights      = gym.get_weights()
+            self.best_epoch        = self.epoch
+            
+        # memory usage
+        p = psutil.Process()
+        with p.oneshot():
+            self.process.memory_rss.append( p.memory_info().rss / (1024.*1024.))
+            self.process.memory_vms.append( p.memory_info().vms / (1024.*1024.) )
+            
+    def set_best_weights(self, *, gym, world, val_world):
+        """
+        Write best weights into gym and set current state accordingly
+        The function updates 'training_result' and 'val_result', too
+        """        
+        gym.set_weights( self.best_weights )
+        self.training_result = npCast( gym(world.tf_data) )
+        self.val_result      = npCast( gym(val_world.tf_data) )
+
+
+class Monitor(tf.keras.callbacks.Callback):
+    """
+    Manages training of our model    
+    -- Keeps track of training data in TrainingProgressData including best fit
+    -- Implements caching
+    -- Implements dyanmic visual updates
+    """
+    
+    def __init__(self, *, gym, world, val_world, result0, training_info, config = Config(), output_level = "all" ):# NOQA
+        tf.keras.callbacks.Callback.__init__(self)
+        
+        self.gym              = gym  
+        self.world            = world
+        self.val_world        = val_world
+        self.training_info    = training_info
+        self.why_stopped      = "Ran all epochs"
+        self.epoch_start      = None
+        self.time0            = None
+        self.cache_last_epoch = -1
+        self.is_aborted       = False
+
+        self.cache_dir        = config.caching("directory", "./.deephedging_cache", str, "If specified, will use the directory to store a persistence file for the model")
+        self.cache_mode       = config.caching("mode", CacheMode.ON, CacheMode.MODES, "Caching strategy: %s" % CacheMode.HELP)
+        self.cache_freq       = config.caching("epoch_freq", 10, Int>0, "How often to cache results, in number of epochs")
+        cache_file_name       = config.caching("debug_file_name", None, help="Allows overwriting the filename for debugging an explicit cached state")
+        self.plotter          = Plotter(training_info.output_level == 'all', config.visual) if training_info.output_level != 'quiet' else None
+        config.done()
+                
+        self.progress_data    = TrainingProgressData(    
+                                        gym            = gym, 
+                                        world          = world, 
+                                        val_world      = val_world,
+                                        result0        = result0
+                                        )
+        
+        if not self.plotter is None: 
+            print(gym.agent.description)
+            print(gym.utility.description)
+
+        # caching
+        self.cache_mode       = CacheMode( self.cache_mode )
+        self.cache_dir        = SubDir(self.cache_dir, "!")
+        optimizer_id          = uniqueHash( tf.keras.optimizers.serialize( gym.optimizer ) )
+        self.cache_file       = uniqueFileName48( gym.unique_id, optimizer_id, world.unique_id, val_world.unique_id ) if cache_file_name is None else cache_file_name
+        self.full_cache_file  = self.cache_dir.fullKeyName( self.cache_file )
+
+        if not self.cache_mode.is_off:
+            if not self.plotter is None: print("Caching enabled @ '%s'" %  self.full_cache_file)
+            if self.cache_mode.delete:
+                self.cache_dir.delete( self.cache_file )    
+            elif self.cache_mode.read:
+                # restore cache                
+                cache = self.cache_dir.read( self.cache_file )
+                if not cache is None:
+                    # load everything except the gym 
+                    # restore gym
+                    if not self.gym.restore_from_cache( cache['gym'] ):
+                        if not self.plotter is None: print(\
+                              "\rCache consistency error: could not write weights from cache to current model. This is most likely because the model architecture changed.\n"\
+                              "Use config.train.caching.mode = 'renew' to rebuild the cache if this is the case. Use config.train.caching.mode = 'off' to turn caching off.\n")
+                    else:
+                        self.progress_data = cache['progress_data']
+                        _log.verify( self.progress_data.epoch >= 0, "Error: object restored from cache had epoch set to %ld", self.progress_data.epoch )
+                        self.cache_last_epoch = self.progress_data.epoch
+                        if not self.plotter is None: print("Cache successfully loaded. Current epoch: %ld" % (self.progress_data.epoch+1) )
+
+        # initialize timing
+        if self.progress_data.epoch+1 >= training_info.epochs:
+            if not self.plotter is None: print( \
+                   "Nothing to do: cached model loaded from %s was trained for %ld epochs; you have asked to train for %ld epochs. "\
+                   "If you want to force training: raise number of epochs or turn off caching.\n\nPlotting results for the trained model.\n" % \
+                   ( self.full_cache_file, self.progress_data.epoch+1, training_info.epochs ) )
+        self.time0 = time.time()
+
     @property
     def is_done(self):
-        return self.epoch+1 >= self.epochs
-
-    def on_epoch_begin( self, epoch, logs = None ):# NOQA
-        pass
-            
-    def on_epoch_end( self, epoch, logs = None ):
-        """ Called when an epoch ends """
-        self.epoch       = epoch
-        
-    def plot(self):# NOQA
-        pass
-              
-    def finalize( self, set_best = True ):# NOQA
-        pass
-
-# =========================================================================================
-# Factory
-# =========================================================================================
-
-def MonitorFactory( gym, world, val_world, result0, epochs, batch_size, time_out, monitor_type, config_visual, config_caching ):
-    """
-    Creates a monitor based on a config file. A monitor prints progress information during training.
-
-    Parameters
-    ----------
-        gym       : VanillaDeepHedgingGym or similar interface
-        world     : world with training data
-        val_world : world with validation data (e.g. computed using world.clone())
-        result0   : result from gym(world)
-        epochs    : number of epochs
-        batch_size: batch_size
-        time_out  : in seconds
-        config_visual,
-        config_caching : configs for visualization and caching, respectively.
-
-    Returns
-    -------
-        An monitor.
-    """    
-    monitor       = None
-    if monitor_type == "notebook":
-        monitor = NotebookMonitor( gym, world, val_world, result0, epochs, batch_size, time_out, config_visual, config_caching )
-    elif monitor_type == "none":
-        monitor = NoMonitor( gym, world, val_world, result0, epochs, batch_size, time_out, config_visual, config_caching )
+        """ Checks whether training has finished. This can happen at inception if a cache is restored which was trained for as many epochs as requested """
+        return self.progress_data.epoch+1 >= self.training_info.epochs
     
-    _log.verify( not monitor is None, "Unknnown monitor type '%s'", monitor_type )
-    return monitor
+    @property
+    def current_epoch(self):
+        """ Returns the current epoch. -1 if no epoch was run """
+        return self.progress_data.epoch
+    
+    def on_epoch_begin( self, epoch, logs = None ):
+        """ If this is the first epoch, tell user we started training. """
+        if self.progress_data.epoch == -1:
+            weights    = fmt_big_number( self.gym.num_trainable_weights )
+            act_epochs = self.training_info.epochs-(self.progress_data.epoch+1)
+            if not self.plotter is None: print("Deep Hedging Engine: first of %ld epochs for training %s weights over %ld samples with %ld validation samples started. This training run took %s so far. Now compiling graph ...       " % (act_epochs, weights, self.world.nSamples, self.val_world.nSamples, fmt_seconds(time.time()-self.time0)), end='')
+        self.epoch_start      = time.time()
+            
+    def on_epoch_end( self, loop_epoch, logs = None ):
+        """
+        Called when an epoch ends
+        Handle plotting, and caching
+        Note that 'loop_epoch' is the epoch of the current training run. If the state was recovered from a cache, it won't be the logical epoch
+        """
+        if self.progress_data.epoch == -1:
+            empty = " "*200
+            if not self.plotter is None: print("\r\33[2K "+empty+"\r", end='')
+        
+        self.progress_data.on_epoch_end( 
+                                gym        = self.gym, 
+                                world      = self.world, 
+                                val_world  = self.val_world,
+                                loop_epoch = loop_epoch,
+                                time_epoch = time.time() - self.epoch_start,
+                                batch_loss = float( logs['loss_default_loss'] ), # we read the metric instead of 'loss' as this appears to be weighted properly
+                                )
+        assert self.progress_data.epoch >= 0, "Internal error"
+        
+        # cache or not
+        # ------------
+        
+        if self.current_epoch % self.cache_freq == 0 and self.cache_mode.write and self.current_epoch > self.cache_last_epoch:
+            self.write_cache()
+        
+        # plot
+        # ----
+        
+        if self.plotter is None:
+            return
+        self.plotter(world             = self.world, 
+                     val_world         = self.val_world, 
+                     last_cached_epoch = self.cache_last_epoch,
+                     progress_data     = self.progress_data, 
+                     training_info     = self.training_info )
 
+    def finalize( self, status ):
+        """
+        Close training. Call this even if training was aborted
+        -- Cache the current state
+        -- Apply best weight
+        """
+        # tell user what happened
+        empty = " "*200
+        if not self.plotter is None: print("\r\33[2K"+ ( "*** Aborted *** " if self.is_aborted else "") + empty, end='')
+
+        # cache current state /before/ we reset gym to its best weights
+        # this way we can continue to train from where we left it
+        cached_msg = ""
+        if self.progress_data.epoch >= 0 and self.cache_mode.write:
+            self.write_cache()
+            cached_msg = " State of training until epoch %ld cached into %s\n" % (self.cache_last_epoch+1, self.full_cache_file)
+
+        # restore best weights
+        self.progress_data.set_best_weights( gym=self.gym, world=self.world, val_world=self.val_world )
+
+        # upgrade plot
+        if not self.plotter is None:
+            self.plotter(world             = self.world, 
+                         val_world         = self.val_world, 
+                         last_cached_epoch = self.cache_last_epoch,
+                         progress_data     = self.progress_data, 
+                         training_info     = self.training_info )
+            self.plotter.close()
+                
+        if not self.plotter is None: print("\n Status: %s.\n Weights set to best epoch: %ld\n%s" % (status, self.progress_data.best_epoch+1,cached_msg) )
+    
+    def write_cache(self):
+        """ Write cache to disk """
+        cache = { 'gym':           self.gym.create_cache(),
+                  'progress_data': self.progress_data
+                }            
+        self.cache_dir.write( self.cache_file, cache )
+        self.cache_last_epoch = self.progress_data.epoch
+        
 # =========================================================================================
 # training
 # =========================================================================================
@@ -79,11 +309,12 @@ def default_loss( y_true,y_pred ):
     """ Default loss: ignore y_true """
     return y_pred
 
+# =========================================================================================
+
 def train(  gym,
             world,
             val_world,
-            config  : Config,
-            verbose : int =0):
+            config  : Config = Config() ):
     """ 
     Train our deep hedging model with with the provided world.
     Main training loop.
@@ -98,7 +329,6 @@ def train(  gym,
         world     : world with training data
         val_world : world with validation data (e.g. computed using world.clone())
         config    : configuration
-        verbose   : how much detail to print during training (not used)
 
     Returns
     -------
@@ -110,72 +340,190 @@ def train(  gym,
     to support warm starting. Will at some point redesign this architecture to create cleaner delineation of data, caching, 
     and visualization (at the very least to support multi-processing training)
     """
-    tf.debugging.disable_check_numerics()
     
-    optimzier        = config.train("optimizer",  "RMSprop", help="Optimizer" )
+    # how much to print
+    output_level     = config("output_level", "all", ['quiet', 'text', 'all'], "What to print during training")
+    debug_numerics   = config.debug("check_numerics", False, bool, "Whether to check numerics.")
+    
+    # training parameters    
     batch_size       = config.train("batch_size",  None, help="Batch size")
     epochs           = config.train("epochs",      100, Int>0, help="Epochs")
-    time_out         = config.train("time_out",    None, int, help="Timeout in seconds. None for no timeout.")
     run_eagerly      = config.train("run_eagerly", False, help="Keras model run_eagerly. Turn to True for debugging. This slows down training. Use None for default.")
     learning_rate    = config.train("learing_rate", None, help="Manually set the learning rate of the optimizer")
-    
-    # monitoring and caching
-    monitor_type     = config("monitor_type", "notebook", ['notebook', 'none'], "What kind of progress monitor to use. Set to 'notebook' for jupyter use.")
-    config_visual    = config.visual.detach()
-    config_caching   = config.caching.detach()
+    tf_verbose       = config.train("tf_verbose", 0, Int>=0, "Verbosity for TensorFlow fit()")
+    optimzier        = create_optimizer(config.train)
     
     # tensorboard: have not been able to use it .. good luck.
-    tboard_log_dir   = config.train.tensor_board(   "log_dir", "", str, "Specify tensor board log directory")
-    tboard_freq      = config.train.tensor_board(   "hist_freq", 1, Int>0, "Specify tensor board log frequency")
-    config.done()
-    
-    result0          = gym(world.tf_data)   # builds the model
+    tboard_log_dir   = config.train.tensor_board(   "log_dir", "", str, "Specify tensor board log directory. See https://www.tensorflow.org/guide/profiler")
+    tboard_freq      = config.train.tensor_board(   "hist_freq", 1, Int>0, "Specify tensor board log frequency. See https://www.tensorflow.org/guide/profiler") 
+    tboard_prf_batch = config.train.tensor_board(   "profile_batch", 0, help="Batch used for profiling. Set to non-zero to activate profiling. See https://www.tensorflow.org/guide/profiler") 
 
+    # compile
+    # -------
+    
+    t0               = time.time()
+    result0          = gym(world.tf_data)   # builds the model
     gym.compile(    optimizer        = optimzier, 
                     loss             = dict( loss=default_loss ),
                     weighted_metrics = dict( loss=default_loss ),
                     run_eagerly      = run_eagerly)
-
     if not learning_rate is None:
         gym.optimizer.lr = float( learning_rate )
-
-    monitor          = MonitorFactory(  gym            = gym, 
-                                        world          = world, 
-                                        val_world      = val_world,
-                                        result0        = result0, 
-                                        epochs         = epochs, 
-                                        batch_size     = batch_size, 
-                                        time_out       = time_out,
-                                        monitor_type   = monitor_type,
-                                        config_visual  = config_visual,
-                                        config_caching = config_caching )
+    if output_level != "quiet": print("Gym with %s trainable weights compiled and initialized. Took %s" % (fmt_big_number(gym.num_trainable_weights),fmt_seconds(time.time()-t0)))
     
-    if monitor.is_done:
-        monitor.why_stopped = "Cached model already sufficiently trained"
+    # prepare tracking
+    # ----------------
+    
+    t0               = time.time()
+    training_info    = TrainingInfo( 
+                                batch_size     = batch_size,
+                                epochs         = epochs,
+                                output_level   = output_level,
+                                num_weights    = gym.num_trainable_weights)        
+    monitor          = Monitor( gym            = gym, 
+                                world          = world, 
+                                val_world      = val_world,
+                                result0        = result0, 
+                                training_info  = training_info,
+                                config         = config,
+                                output_level   = output_level)
+    if output_level != "quiet": print("Training monitor initialized. Took %s" % fmt_seconds(time.time()-t0))
+    config.done()
+
+    # train
+    # -----
+    
+    if debug_numerics:
+        tf.debugging.enable_check_numerics()
+        if output_level != "quiet": print("Enabled automated checking for numerical errors. This will slow down training. Use config.debug.check_numerics = False to turn this off")
     else:
+        tf.debugging.disable_check_numerics()
+    
+    t0               = time.time()
+    if monitor.is_done:
+        why_stopped = "Cached model already sufficiently trained"
+    else:
+        assert epochs > (monitor.current_epoch+1), "Internal error. monitor.is_done failed"
         # tensorboard
         # See https://docs.aws.amazon.com/sagemaker/latest/dg/studio-tensorboard.html
+
         tboard = None
         if tboard_log_dir != "":
-            tboard        = tf.keras.callbacks.TensorBoard(log_dir=tboard_log_dir, histogram_freq=tboard_freq)
-            print("\r\33[2KTensorBoard log directory set to %s" % tboard_log_dir)
+            t0             = time.time()
+            tboard_log_dir = SubDir(tboard_log_dir).path
+            tboard         = tf.keras.callbacks.TensorBoard(log_dir=tboard_log_dir, histogram_freq=tboard_freq, profile_batch=tboard_prf_batch )
+            if output_level != "quiet": print("TensorBoard log directory set to '%s'. Took %s" % (tboard_log_dir, fmt_seconds(time.time()-t0)))
 
+        why_stopped = "Training complete"
         try:
             gym.fit(        x              = world.tf_data,
                             y              = world.tf_y,
                             batch_size     = batch_size,
                             sample_weight  = world.tf_sample_weights * float(world.nSamples),  # sample_weights are poorly handled in TF
-                            epochs         = epochs - monitor.cache_epoch_off,
+                            epochs         = epochs - (monitor.current_epoch+1),
                             callbacks      = monitor if tboard is None else [ monitor, tboard ],
-                            verbose        = 0 )
+                            verbose        = tf_verbose )
         except KeyboardInterrupt:
-            monitor.why_stopped = "Aborted"
+            why_stopped = "Aborted"
 
-    monitor.finalize()
+    monitor.finalize(status = why_stopped)
+    if output_level != "quiet": print("Training terminated. Total time taken %s" % fmt_seconds(time.time()-t0))
 
 
+# =========================================================================================
+# find utility without full gym
+# =========================================================================================
+        
+def utility_loss( y_true,y_pred ):     
+    """ Default loss: ignore y_true """
+    return -y_pred # want to minimize utility loss
+      
+def train_utillity( utility, world, payoff : tf.Tensor= None, pnl : tf.Tensor = None, cost : tf.Tensor = None, config = Config() ) -> tf.Tensor:
+    """
+    Compute utility for a payoff
 
+    Parameters
+    ----------
+        payoff : payoff
+        features : dictionary of features available at time 0
+        config : configuration
 
+    Returns
+    -------
+        Tuple with results:
+            ( utility, utility0, train_history )
+        
+    """
+    output_level     = config("output_level", "all", ['quiet', 'text', 'all'], "What to print during training")
+    debug_numerics   = config.debug("check_numerics", False, bool, "Whether to check numerics.")
+    
+    # training parameters    
+    batch_size       = config.train("batch_size",  None, help="Batch size")
+    epochs           = config.train("epochs",      100, Int>0, help="Epochs")
+    run_eagerly      = config.train("run_eagerly", False, help="Keras model run_eagerly. Turn to True for debugging. This slows down training. Use None for default.")
+    learning_rate    = config.train("learing_rate", None, help="Manually set the learning rate of the optimizer")
+    tf_verbose       = config.train("tf_verbose", 0, Int>=0, "Verbosity for TensorFlow fit()")
+    optimzier        = create_optimizer(config.train)
+    
+    # compile
+    # -------
+    
+    features_per_step, \
+    features_per_path  = VanillaDeepHedgingGym._features(world.tf_data)
+    features_time_0 = {}
+    features_time_0.update( { f:features_per_path[f] for f in features_per_path } )
+    features_time_0.update( { f:features_per_step[f][:,0,:] for f in features_per_step})
+
+    payoff            = tf.convert_to_tensor(payoff, dtype=utility.dtype) if not payoff is None else world.tf_data['market']['payoff']
+    pnl               = tf.convert_to_tensor(pnl, dtype=utility.dtype) if not pnl is None else payoff*0.
+    cost              = tf.convert_to_tensor(cost, dtype=utility.dtype) if not cost is None else payoff*0.
+
+    _log.verify( len(payoff.shape) == 1, "'payoff': expected vector, found tensor of shape %s", payoff.shape.as_list() )
+    _log.verify( pnl.shape == payoff.shape,  "'pnl' must have same shape as 'payoff'. Found %ld and %ld, respectively", pnl.shape.as_list(), payoff.shape.as_list() )
+    _log.verify( cost.shape == payoff.shape, "'cost' must have same shape as 'payoff'. Found %ld and %ld, respectively", cost.shape.as_list(), payoff.shape.as_list() )
+    assert len( world.tf_sample_weights.shape ) == 2 and world.tf_sample_weights.shape[0] == payoff.shape[0] and world.tf_sample_weights.shape[1] == 1, "Internal error: world.tf_sample_weights shape is %s" % (str(world.tf_sample_weights.shape.as_list()))
+    
+    tf_data=dict(   features_time_0 = features_time_0,
+                    payoff          = payoff, 
+                    pnl             = pnl,
+                    cost            = cost )
+
+    r0 = utility( tf_data )
+    u0 = tf.reduce_sum( r0 * world.tf_sample_weights[:,0] )
+    u0 = float(u0) 
+    
+    utility.compile(optimizer        = optimzier, 
+                    loss             = utility_loss,
+                    run_eagerly      = run_eagerly)
+    
+    if not learning_rate is None:
+        gym.optimizer.lr = float( learning_rate )
+    
+    config.done()
+
+    if debug_numerics:
+        tf.debugging.enable_check_numerics()
+        if output_level != "quiet": print("Enabled automated checking for numerical errors. This will slow down training. Use config.debug.check_numerics = False to turn this off")
+    else:
+        tf.debugging.disable_check_numerics()
+    
+    why_stopped = "Training complete"
+    try:
+        uf = utility.fit(   
+                        x              = tf_data,
+                        y              = world.tf_y,
+                        batch_size     = batch_size,
+                        sample_weight  = world.tf_sample_weights * float(world.nSamples),  # sample_weights are poorly handled in TF
+                        epochs         = epochs,
+                        callbacks      = None,
+                        verbose        = tf_verbose )
+    except KeyboardInterrupt:
+        why_stopped = "Aborted"
+
+    ret  = utility( tf_data )
+    util = tf.reduce_sum( ret * world.tf_sample_weights[:,0] )
+    util = float(util)
+    return util, u0, uf
 
 
 

@@ -7,13 +7,16 @@ June 30, 2022
 @author: hansbuehler
 """
 
-from .base import Logger, Config, tf, dh_dtype
+from .base import Logger, Config, tf, dh_dtype, tfCast, fmt_list, DIM_DUMMY
 from .layers import DenseLayer, VariableLayer
 from cdxbasics import PrettyDict as pdct
 from collections.abc import Mapping
+from scipy.optimize import minimize_scalar
+import numpy as np
+
 _log = Logger(__file__)
  
-class MonetaryUtility(tf.keras.layers.Layer):
+class MonetaryUtility(tf.keras.Model):
     """
     Monetary utility function as standard objective for deep hedging.
     The objective for a claim X is defined as
@@ -62,9 +65,10 @@ class MonetaryUtility(tf.keras.layers.Layer):
             dtype : tf.DType, optional
                 dtype
         """
-        tf.keras.layers.Layer.__init__(self, name=name, dtype=dtype )
-        self.utility    = config("utility","exp2", ['mean', 'exp', 'exp2', 'vicky', 'cvar', 'quad'], help="Type of monetary utility")
-        self.lmbda      = config("lmbda", 1., float, help="Risk aversion")
+        tf.keras.Model.__init__(self, name=name, dtype=dtype )
+        self.utility      = config("utility","exp2", ['mean', 'exp', 'exp2', 'vicky', 'cvar', 'quad'], help="Type of monetary utility")
+        self.lmbda        = config("lmbda", 1., float, help="Risk aversion")
+        self.display_name = self.utility + "@%g" % self.lmbda
         _log.verify( self.lmbda > 0., "'lmnda' must be positive. Use utility 'mean' for zero lambda")
         
         if self.utility in ["mean"]:
@@ -128,17 +132,86 @@ class MonetaryUtility(tf.keras.layers.Layer):
         """ 
         _log.verify( isinstance(features_time_0, Mapping), "'features_time_0' must be a dictionary type. Found type %s", type(features_time_0))
         features_time_0 = features_time_0 if not features_time_0 is None else {}
-        y     = self.y( features_time_0, training=training ) 
-        y     = tf.debugging.check_numerics(y, "Numerical error computing OCE_y in %s" % __file__ )
+        y      = self.y( features_time_0, training=training )
+        assert len(y.shape) == 2 and y.shape[1] == 1, "Internal error: expected variable to return a vector of shape [None,1]. Found %s" % y.shape.as_list()
+        y      = y[:,0]
+        #y     = tf.debugging.check_numerics(y, "Numerical error computing OCE_y in %s" % __file__ )
         return utility(self.utility, self.lmbda, X, y=y )
         
     @property
-    def features(self): # NOQA
+    def features(self):
+        """ Features used by the utility """
         return self.y.features
     @property
-    def available_features(self): # NOQA
+    def available_features(self):
+        """ Features available to the utility. """
         return self.y.available_features
+    @property
+    def nFeatures(self):
+        """ Number of features used """
+        return self.y.nFeatures
+    @property
+    def num_trainable_weights(self) -> int:
+        """ Returns the number of weights. The model must have been call()ed once """
+        weights = self.trainable_weights
+        return np.sum( [ np.prod( w.get_shape() ) for w in weights ] )
+    @property
+    def description(self):
+        """ Returns a text description of 'self' """
+        text =        "Monetary utility %s is using %ld weight%s" % (self.display_name, self.num_trainable_weights, "s" if self.num_trainable_weights != 1 else "")
+        text +=     "\n Features available: %s" % fmt_list( self.y.available_features )
+        text +=     "\n Features used:      %s" % fmt_list( self.y.features )
+        return text
+    
+    # -----------------------------------
+    # Analytical
+    # -----------------------------------
+    
+    def compute_stateless_utility(self, payoff, sample_weights=None, **minimize_scalar_kwargs ) -> tf.Tensor:
+        """
+        Computes the utility of a payoff with classic optimization.
+        This function only works if 'y' is stateless.
+        Note that this function is not very accurate. Use trainer.train_utillity() for a more accurate version using tensorflow.
+        
+        Parameters
+        ----------
+            payoff : the terminal value to compute a utility for
+            sample_weights: from the world. If None, set to 1/N
+            
+        Returns
+        -------
+            The utility value as a float.
+        """
+        
+        try:
+            # trigger build(). This will fail if 'y' expects some features 
+            _ = self.y(data={DIM_DUMMY:(payoff*0.)[:,np.newaxis]})
+        except KeyError as k:
+            _log.verify( self.nFeatures == 0, "Utility intercept 'y' relies on %ld features %s. Cannot compute simple initial utility. Use TensorFlow.", self.nFeatures,self.features )
 
+        payoff           = np.array( payoff )
+        np_dtype         = payoff.dtype
+        _log.verify( len(payoff.shape) == 1, "'payoff' must have shape of dimension 1. Found shape %s", payoff.shape )        
+        nSamples         = int( payoff.shape[0] )
+        sample_weights   = np.array( sample_weights, dtype=np_dtype ) if not sample_weights is None else np.full( (nSamples,), 1./float(nSamples), dtype=np_dtype )
+        sample_weights   = sample_weights[:,0] if not sample_weights is None and len(sample_weights.shape) == 2 and sample_weights.shape[1] == 1 else sample_weights
+        
+        _log.verify( payoff.shape == sample_weights.shape, "'payoff' must have same shape as 'sample_weights'. Found %s and %s, respectively", payoff.shape, sample_weights.shape )
+
+        payoff           = tf.convert_to_tensor(payoff)
+
+        def objective(y):
+            y = np.array(y, dtype=np_dtype)
+            r = utility(self.utility, self.lmbda, payoff, y=tf.convert_to_tensor(y) )
+            u = np.array( r.u, dtype=np_dtype )
+            u = np.sum( sample_weights * u )
+            return -u
+
+        _  = objective(0.)   # triggers errors if any
+        r  = minimize_scalar( objective, **minimize_scalar_kwargs )
+        if not r.success: _log.throw( "Failed to find optimal intercept 'y' for utility %s with risk aversion %g: %s", self.utility, self.lmbda, r.message )
+        return -r.x
+        
         
 @tf.function  
 def utility( utility : str, lmbda : float, X : tf.Tensor, y : tf.Tensor = 0. ) -> dict:
@@ -216,7 +289,7 @@ def utility( utility : str, lmbda : float, X : tf.Tensor, y : tf.Tensor = 0. ) -
         #
         # However, this tends to be numerically challenging.
         # we introcue a robust version less likely to explode
-        inf = tf.stop_gradient( tf.reduce_min( gains ) )
+        inf = tf.stop_gradient( tf.reduce_min( X ) )
         u = (1. - tf.math.exp( - lmbda * (gains-inf)) ) / lmbda - y + inf
         d = tf.math.exp(- lmbda * gains )
         
@@ -249,11 +322,17 @@ def utility( utility : str, lmbda : float, X : tf.Tensor, y : tf.Tensor = 0. ) -
         
     _log.verify( not u is None, "Unknown utility function '%s'", utility )      
     
-    u = tf.debugging.check_numerics(u, "Numerical error computing u in %s. Turn on tf.enable_check_numerics to find the root cause. Note that they are disabled in trainer.py" % __file__ )
-    d = tf.debugging.check_numerics(d, "Numerical error computing d in %s. Turn on tf.enable_check_numerics to find the root cause. Note that they are disabled in trainer.py" % __file__ )
+    u = tf.debugging.check_numerics(u, "Numerical error computing u in %s. Turn on tf.enable_check_numerics to find the root cause.\nX: %s\ny : %s" % (__file__, str(X), str(y)) )
+    d = tf.debugging.check_numerics(d, "Numerical error computing d in %s. Turn on tf.enable_check_numerics to find the root cause.\nX: %s\ny : %s" % (__file__, str(X), str(y)) )
     
     return pdct(
             u = u,
             d = d
         )
     
+
+    
+  
+
+        
+        

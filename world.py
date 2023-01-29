@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Deep Hedging Example Worlds
 ---------------------------
@@ -8,8 +7,9 @@ June 30, 2022
 @author: hansbuehler
 """
 
-from deephedging.base import Logger, Config, dh_dtype, tf, tfCast, pdct, tf_dict, assert_iter_not_is_nan
+from deephedging.base import Logger, Config, dh_dtype, tf, tfCast, pdct, tf_dict, assert_iter_not_is_nan, DIM_DUMMY
 from cdxbasics.dynaplot import figure, colors_tableau
+from cdxbasics.util import uniqueHash
 import numpy as np
 import math as math
 #from tqdm import tqdm
@@ -57,9 +57,9 @@ class SimpleWorld_Spot_ATM(object):
             sample weights for train()
             Dimension (nSamples,1) c.f. https://stackoverflow.com/questions/60399983/how-to-create-and-use-weighted-metrics-in-keras
 
-        diagnostics : dict
-            Dictionary of diagnostics, e.g. the hidden drift and realized vol
-            of the asset (numpy)
+        details : dict
+            Dictionary of details, e.g. the hidden drift and realized vol of the asset (numpy)
+            Most important usually is 'spot_all' which are all spots of the equity (not options), including at maturity (e.g. it has nSteps+1)
 
         nSamples : int
             Number of samples
@@ -72,6 +72,10 @@ class SimpleWorld_Spot_ATM(object):
             
         dt : floast
             Time step.    
+            TODO: remove in favour of the timeline below
+            
+        timelime : np.ndarray
+            Generalized timeline. Includes last time point T, e.g. is of length nSteps+1
             
         config : Config
             Copy of the config file, for cloning
@@ -88,19 +92,18 @@ class SimpleWorld_Spot_ATM(object):
             Long list. Use the report feature of 'config' for full feature set
             
                 config  = Config()
-                world   = SimpleWorld(config)
+                world   = SimpleWorld_Spot_ATM(config)
                 print( config.usage_report( with_values = False )
                       
              To use black & scholes mode use hard overwrite black_scholes = True
         """
-        self.dtype      = dtype
-        self.unique_id = config.unique_id() # for serialization
+        self.tf_dtype  = dtype
+        self.np_dtype  = dtype.as_numpy_dtype()
+        self.unique_id = None               # for serialization; see below
         self.config    = config.copy()      # for cloning
 
-        # read config
-        # -----------
-        
-        # spot
+        # simulator
+        # ---------
         nSteps     = config("steps", 10, int, help="Number of time steps")
         nSamples   = config("samples", 1000, int, help="Number of samples")
         seed       = config("seed", 2312414312, int, help="Random seed")
@@ -120,17 +123,7 @@ class SimpleWorld_Spot_ATM(object):
         _log.verify( lbnd_as <= 0., "'lbnd_as' must not be positive; found %g", lbnd_as )
         _log.verify( ubnd_as - lbnd_as > 0., "'ubnd_as - lbnd_as' must be positive; found %g", ubnd_as - lbnd_as)
 
-        # payoff
-        # must either be a function of spots[samples,steps+1], None, or a fixed umber
-        payoff_f  = config("payoff", lambda spots : - np.maximum( spots[:,-1] - 1, 0. ), help="Payoff function with parameter spots[samples,steps+1]. Must return a vector [samples]. The default is a short call with strike 1: '- np.maximum( spots[:,-1] - 1, 0. )'. A short forward starting ATM call is given as '- np.maximum( spots[:,-1] - spots[:,0], 0. )'. You can also use None for zero, or a simple float.", help_default="Short call with strike 1")
-        if payoff_f is None:
-            # None means zero.
-            payoff_f = lambda x : np.zeros( (x.shape[0], ) )
-        elif isinstance(payoff_f, (int,float)):
-            # specify terminal payoff as a fixed number, e.g. 0
-            payoff_f = lambda x : np.full( (x.shape[0],), float(payoff_f) )
-
-        # option
+        # hedging option
         # set strike == 0 to turn off
         strike    = config("strike", 1.,     float, help="Relative strike. Set to zero to turn off option")
         ttm_steps = config("ttm_steps", 4,   int, help="Time to maturity of the option; in steps")
@@ -146,7 +139,26 @@ class SimpleWorld_Spot_ATM(object):
         _log.verify( lbnd_av <= 0., "'lbnd_av' must not be positive; found %g", lbnd_av )
         _log.verify( ubnd_av - lbnd_av > 0., "'ubnd_av - lbnd_as' must be positive; found %g", ubnd_av - lbnd_av )
         
-        # drift
+        # payoff
+        # ------
+        # must either be a function of spots[samples,steps+1], None, or a fixed umber
+        payoff_f  = config("payoff", "atmcall", help="Payoff function with parameter spots[samples,steps+1]. Can be a function which must return a vector [samples]. Can also be short 'atmcall' or short 'atmput', or a fixed numnber. The default is 'atmcall' which is a short call with strike 1: '- np.maximum( spots[:,-1] - 1, 0. )'. A short forward starting ATM call is given as '- np.maximum( spots[:,-1] - spots[:,0], 0. )'.")
+        if payoff_f is None:
+            # None means zero.
+            payoff_f = np.zeros( (nSamples, ) )
+        elif isinstance(payoff_f, (int,float)):
+            # specify terminal payoff as a fixed number, e.g. 0
+            payoff_f = np.full( (nSamples,), float(payoff_f) )
+        elif isinstance(payoff_f, str):
+            if payoff_f == "atmcall":
+                payoff_f = lambda spots : - np.maximum( spots[:,-1] - 1., 0. )
+            elif payoff_f == "atmput":
+                payoff_f = lambda spots : - np.maximum( 1. - spots[:,-1], 0. )
+            else:
+                _log.throw("Unknown 'payoff' '%s'", payoff_f)
+
+        # market dynamics
+        # ---------------
         drift    = config("drift", 0.1, float, help="Mean drift of the asset. This is the total drift.")
         kappa_m  = config("meanrev_drift", 1., float, help="Mean reversion of the drift of the asset")
         xi_m     = config("drift_vol", 0.1, float, help="Vol of the drift")
@@ -176,7 +188,6 @@ class SimpleWorld_Spot_ATM(object):
         config.done()
         self.usage_report = config.usage_report()
         self.input_report = config.input_report()
-        self.config_id    = config.unique_id
         
         # black scholes
         if bs_mode:
@@ -202,7 +213,7 @@ class SimpleWorld_Spot_ATM(object):
         xi_m        = abs(xi_m)   # negative number is odd, but forgivable
         xi_v        = abs(xi_v)   # negative number is odd, but forgivable
         xi_i        = abs(xi_i)   # negative number is odd, but forgivable
-        time_left   = np.linspace(float(nSteps), 1., nSteps, endpoint=True) * dt
+        time_left   = np.linspace(float(nSteps), 1., nSteps, endpoint=True, dtype=self.np_dtype) * dt
         sqrt_time_left = np.sqrt( time_left )
         
         # simulate
@@ -210,16 +221,16 @@ class SimpleWorld_Spot_ATM(object):
         # Not the most efficient simulator, but easier to read this way
         
         np.random.seed(seed)
-        dW          = np.random.normal(size=(nSamples,nSteps+nIvSteps+ttm_steps-1,4)) * sqrtDt
+        dW          = np.random.normal(size=(nSamples,nSteps+nIvSteps+ttm_steps-1,4)).astype( self.np_dtype ) * sqrtDt
         dW_s        = dW[:,:,0]
         dW_m        = dW[:,:,0] * rho_ms + math.sqrt(1. - rho_ms**2) * dW[:,:,1]
         dW_v        = dW[:,:,0] * rho_vs + math.sqrt(1. - rho_vs**2) * dW[:,:,2]
         dW_i        = dW[:,:,2] * rho_vi + math.sqrt(1. - rho_vi**2) * ( dW[:,:,0] * rho_vs_r + math.sqrt(1. - rho_vs_r**2) * dW[:,:,3] )
 
-        spot            = np.zeros((nSamples,nSteps+nIvSteps+ttm_steps))
-        rdrift          = np.full((nSamples,nSteps+nIvSteps+ttm_steps), drift)
-        rvol            = np.full((nSamples,nSteps+nIvSteps+ttm_steps), rvol_init)
-        ivol            = np.full((nSamples,nSteps+nIvSteps+ttm_steps), ivol_init)
+        spot            = np.zeros((nSamples,nSteps+nIvSteps+ttm_steps), dtype=self.np_dtype)
+        rdrift          = np.full((nSamples,nSteps+nIvSteps+ttm_steps), drift, dtype=self.np_dtype)
+        rvol            = np.full((nSamples,nSteps+nIvSteps+ttm_steps), rvol_init, dtype=self.np_dtype)
+        ivol            = np.full((nSamples,nSteps+nIvSteps+ttm_steps), ivol_init, dtype=self.np_dtype)
         
         spot[:,0]       = 1.
         log_ivol_init   = np.log( ivol_init )
@@ -298,11 +309,11 @@ class SimpleWorld_Spot_ATM(object):
             call_vega  = opt_spot * norm.pdf(d1) * sqrtTTM
             cost_dC    = cost_v * np.abs(call_vega) + cost_s * np.abs(call_delta) + cost_p * abs(call_price) # note: for a call vega and delta are positive, but we apply abs() anyway to illusteate the point
     
-            dInsts         = np.ones((nSamples,nSteps,2))
-            cost           = np.ones((nSamples,nSteps,2))
-            price          = np.ones((nSamples,nSteps,2))
-            ubnd_a         = np.ones((nSamples,nSteps,2))
-            lbnd_a         = np.ones((nSamples,nSteps,2))
+            dInsts         = np.ones((nSamples,nSteps,2), dtype=self.np_dtype)
+            cost           = np.ones((nSamples,nSteps,2), dtype=self.np_dtype)
+            price          = np.ones((nSamples,nSteps,2), dtype=self.np_dtype)
+            ubnd_a         = np.ones((nSamples,nSteps,2), dtype=self.np_dtype)
+            lbnd_a         = np.ones((nSamples,nSteps,2), dtype=self.np_dtype)
             dInsts[:,:,0]  = dS
             dInsts[:,:,1]  = dC
             cost[:,:,0]    = cost_dS
@@ -317,10 +328,19 @@ class SimpleWorld_Spot_ATM(object):
         # payoff
         # ------
         
-        payoff    = payoff_f( spot[:,:nSteps:+1] )
-        payoff    = payoff[:,0] if payoff.shape == (nSamples,1) else payoff
-        _log.verify( payoff.shape == (nSamples,), "'payoff' function which receives a vector spots[nSamples,nSteps+1] must return a vector of size nSamples. Found shape %s", payoff.shape )
-        
+        if not isinstance(payoff_f, np.ndarray):
+            payoff    = payoff_f( spot[:,:nSteps+2] )
+            payoff    = payoff[:,0] if payoff.shape == (nSamples,1) else payoff
+            _log.verify( payoff.shape == (nSamples,), "'payoff' function which receives a vector spots[nSamples,nSteps+1] must return a vector of size nSamples. Found shape %s", payoff.shape )
+        else:
+            _log.verify( payoff_f.shape == (nSamples,), "'payoff' if a vector is provided, its size must match the sample size. Expected shape %s, found %s", (nSamples,), payoff_f.shape )
+            payoff     = payoff_f
+            
+        # unique_id:
+        # Default handling for configs will ignore any function definitions, e.g. in this case 'payoff'.
+        # we therefore manually generate a sufficient hash
+        self.unique_id = uniqueHash( [ config.input_dict(), payoff, self.tf_dtype.name ] )
+            
         # -----------------------------
         # store data
         # -----------------------------
@@ -348,8 +368,8 @@ class SimpleWorld_Spot_ATM(object):
                 ubnd_a = ubnd_a,          # bounds. Currently those are determinstic so don't use as features
                 lbnd_a = lbnd_a,
                                           # time
-                time_left      = np.full( (nSamples, nSteps), time_left[np.newaxis,:] ),
-                sqrt_time_left = np.full( (nSamples, nSteps), sqrt_time_left[np.newaxis,:] ),
+                time_left      = np.full( (nSamples, nSteps), time_left[np.newaxis,:], dtype=self.np_dtype ),
+                sqrt_time_left = np.full( (nSamples, nSteps), sqrt_time_left[np.newaxis,:], dtype=self.np_dtype ),
                 # specific to equity spot
                 spot   = spot[:,:nSteps], # spot level (S0,....,Sm-1). This does not include the terminal spot level.
                 ivol   = ivol,            # implied vol at beginning of each interval
@@ -364,6 +384,10 @@ class SimpleWorld_Spot_ATM(object):
                 cost_v      = cost_dC
             )
             
+        # the following variables must always be present in any world
+        # it allows to cast dimensionless variables to the number of samples
+        self.data.features.per_path[DIM_DUMMY] = (payoff * 0.)[:,np.newaxis]  # (None,1)
+
         # check numerics
         assert_iter_not_is_nan( self.data, "data" )
  
@@ -373,39 +397,34 @@ class SimpleWorld_Spot_ATM(object):
         self.tf_data = tf_dict(
             features = self.data.features,
             market   = self.data.market,
+            dtype    = self.tf_dtype
             )
     
-        # diagnostics
+        # details
         # variables for visualization, but not available for the agent
-        self.diagnostics = pdct(
-            per_step = pdct(
-                drift     = rdrift,            # drift fora this interval
-                rvol      = rvol,              # realized vol for this interval
-                spot1     = spot[:,:nSteps+1], # spot S0...Sm e.g. spot including spot at maturity
-                ),
-            per_path = pdct(
-                spot_ret  = spot[:,nSteps] / spot[:,0] - 1, # terminal spot return Sm/S0-1
-                spotT     = spot[:,nSteps]                 # terminal spot
-                )
+        self.details = pdct(
+            # mandatory (used by ploting)
+            spot_all     = spot,      # [nSamples,nSteps+1] spots including spot at T
+            # per model 
+            drift     = rdrift,   # drifts for each interval
+            rvol      = rvol,     # realized vols for each interval
             )
 
         # check numerics
-        assert_iter_not_is_nan( self.diagnostics, "diagnostics" )
+        assert_iter_not_is_nan( self.details, "details" )
         
         # generating sample weights
         # the tf_sample_weights is passed to keras train and must be of size [nSamples,1]
         # https://stackoverflow.com/questions/60399983/how-to-create-and-use-weighted-metrics-in-keras
-        self.sample_weights = np.full((nSamples,1),1./float(nSamples))
+        self.sample_weights = np.full((nSamples,1),1./float(nSamples), dtype=self.np_dtype)
         self.tf_sample_weights \
-                       = tf.constant( self.sample_weights, dtype=self.dtype)   # must be of size [nSamples,1] https://stackoverflow.com/questions/60399983/how-to-create-and-use-weighted-metrics-in-keras
+                       = tf.constant( self.sample_weights, dtype=self.tf_dtype)   # must be of size [nSamples,1] https://stackoverflow.com/questions/60399983/how-to-create-and-use-weighted-metrics-in-keras
         self.sample_weights = self.sample_weights.reshape((nSamples,))
-        self.tf_y      = tf.zeros((nSamples,), dtype=self.dtype)
+        self.tf_y      = tf.zeros((nSamples,), dtype=self.tf_dtype)
         self.nSteps    = nSteps
         self.nSamples  = nSamples
         self.nInst     = 1 if strike <= 0. else 2
         self.dt        = dt
-        self.timeline1 = np.cumsum( np.linspace( 0., nSteps, nSteps+1, endpoint=True, dtype=np.float32 ) ) * dt
-        self.timeline  = self.timeline1[:-1]
         
         self.inst_names = [ 'spot' ]
         if strike > 0.:
@@ -444,8 +463,10 @@ class SimpleWorld_Spot_ATM(object):
         plot_samples = config("plot_samples", 5, int, "Number of samples to plot")
         print_input  = config("print_input", True, bool, "Whether to print the config inputs for the world")
         
-        xSamples = np.linspace(0,self.nSamples,plot_samples,endpoint=False, dtype=int)
-        
+        xSamples  = np.linspace(0,self.nSamples,plot_samples,endpoint=False, dtype=int)
+        timeline1 = np.cumsum( np.linspace( 0., self.nSteps, self.nSteps+1, endpoint=True, dtype=np.float32 ) ) * self.dt
+        timeline  = timeline1[:-1]
+
         print(self.config.usage_report())
         
         fig = figure(tight=True, col_size=col_size, row_size=row_size, col_nums=3 )
@@ -456,8 +477,8 @@ class SimpleWorld_Spot_ATM(object):
         ax.set_title("Spot")
         ax.set_xlabel("Time")
         for i, color in zip( xSamples, colors_tableau() ):
-            ax.plot( self.timeline1, self.diagnostics.per_step.spot1[i,:], "-", color=color )
-        ax.plot( self.timeline1, np.mean( self.diagnostics.per_step.spot1, axis=0), "_", color="black", label="mean" )
+            ax.plot( timeline1, self.details.per_step.spot1[i,:], "-", color=color )
+        ax.plot( timeline1, np.mean( self.details.per_step.spot1, axis=0), "_", color="black", label="mean" )
 #        ax.get_xaxis().get_major_formatter().get_useOffset(False)
         ax.legend()
         
@@ -466,16 +487,16 @@ class SimpleWorld_Spot_ATM(object):
         ax.set_title("Drift")
         ax.set_xlabel("Time")
         for i, color in zip( xSamples, colors_tableau() ):
-            ax.plot( self.timeline, self.diagnostics.per_step.drift[i,:], "-", color=color )
-        ax.plot( self.timeline, np.mean( self.diagnostics.per_step.drift, axis=0), "_", color="black", label="mean" )
+            ax.plot( timeline, self.details.per_step.drift[i,:], "-", color=color )
+        ax.plot( timeline, np.mean( self.details.per_step.drift, axis=0), "_", color="black", label="mean" )
         
         # vols
         ax  = fig.add_plot()
         ax.set_title("Volatilities")
         ax.set_xlabel("Time")
         for i, color in zip( xSamples, colors_tableau() ):
-            ax.plot( self.timeline, self.data.features.per_step.ivol[i,:], "-", color=color )
-            ax.plot( self.timeline, self.diagnostics.per_step.rvol[i,:], ":", color=color )
+            ax.plot( timeline, self.data.features.per_step.ivol[i,:], "-", color=color )
+            ax.plot( timeline, self.details.per_step.rvol[i,:], ":", color=color )
         
         if self.nInst > 1:
             # call prices
@@ -483,8 +504,8 @@ class SimpleWorld_Spot_ATM(object):
             ax.set_title("Call Prices")
             ax.set_xlabel("Time")
             for i, color in zip( xSamples, colors_tableau() ):
-                ax.plot( self.timeline, self.data.features.per_step.call_price[i,:], "-", color=color )
-            ax.plot( self.timeline, np.mean( self.data.features.per_step.call_price, axis=0), "_", color="black", label="mean" )
+                ax.plot( timeline, self.data.features.per_step.call_price[i,:], "-", color=color )
+            ax.plot( timeline, np.mean( self.data.features.per_step.call_price, axis=0), "_", color="black", label="mean" )
             ax.legend()
             
             # call delta
@@ -492,8 +513,8 @@ class SimpleWorld_Spot_ATM(object):
             ax.set_title("Call Deltas")
             ax.set_xlabel("Time")
             for i, color in zip( xSamples, colors_tableau() ):
-                ax.plot( self.timeline, self.data.features.per_step.call_delta[i,:], "-", color=color )
-            ax.plot( self.timeline, np.mean( self.data.features.per_step.call_delta, axis=0), "_", color="black", label="mean" )
+                ax.plot( timeline, self.data.features.per_step.call_delta[i,:], "-", color=color )
+            ax.plot( timeline, np.mean( self.data.features.per_step.call_delta, axis=0), "_", color="black", label="mean" )
             ax.legend()
             
             # call vega
@@ -501,8 +522,8 @@ class SimpleWorld_Spot_ATM(object):
             ax.set_title("Call Vegas")
             ax.set_xlabel("Time")
             for i, color in zip( xSamples, colors_tableau() ):
-                ax.plot( self.timeline, self.data.features.per_step.call_vega[i,:], "-", color=color )
-            ax.plot( self.timeline, np.mean( self.data.features.per_step.call_vega, axis=0), "_", color="black", label="mean" )
+                ax.plot( timeline, self.data.features.per_step.call_vega[i,:], "-", color=color )
+            ax.plot( timeline, np.mean( self.data.features.per_step.call_vega, axis=0), "_", color="black", label="mean" )
             ax.legend()
         
         fig.render()
@@ -511,253 +532,36 @@ class SimpleWorld_Spot_ATM(object):
         if print_input:
             print("Config settings:\n%s" % self.input_report)
 
-class SimpleWorld_Stock_Option(object):
-    """
-    EXPERIMENTAL DO NOT USE YET
-    
-    Simple World with one BS asset and one fixed option.
-    The asset has drift and realized vol different from the option.
 
-    Members
-    -------
-        clone()
-            Create a clone of this world with a different seed as validation set
-            
-    Attributes
-    ----------
-        data : dict
-            Numpy data of the world
-
-            market : dict
-                per_step : dict - Dictionary of market data with second dimension equal to step size (numpy)
-                per_path : dict - Dictionary of market data valid per path
-
-            features : dict
-                per_step : dict - Dictionary of features with second dimension equal to step size (numpy)
-                per_path : dict - Dictionary of features valid per path
-                                            
-        tf_data : dict
-            Returns a dictionary of tensors for the use of gym() or gym.fit()
-
-        tf_y : tf.Tensor
-            y data for gym.fit()
-            
-        tf_sample_weights : tf.Tensor:
-            sample weights for gym.fit()
-
-        tf_sample_weights
-            
-        diagnostics : dict
-            Dictionary of diagnostics, e.g. the hidden drift and realized vol
-            of the asset (numpy)
-
-        nSamples : int
-            Number of samples
-            
-        nSteps : int
-            Number of steps
-            
-        nInst : int
-            Number of instruments.
-            
-        dt : floast
-            Time step.    
-    """
-    
-    def __init__(self, config : Config, dtype=dh_dtype ):
-        """
-        Parameters
-        ----------
-        config : Config
-            Long list. Use the report feature of 'config' for full feature set
-            
-                config  = Config()
-                world   = SimpleWorld(config)
-                print( config.usage_report( with_values = False )
-                      
-             To use black & scholes mode use hard overwrite black_scholes = True
-        """
-        self.dtype   = dtype
-        self.config  = config.copy()
-
-        # read config
-        # -----------
-        
-        # spot
-        nSteps     = config("steps", 10, int, help="Number of time steps")
-        nSamples   = config("samples", 1000, int, help="Number of samples")
-        seed       = config("seed", 2312414312, int, help="Number of samples")
-        dt         = config("dt", 1./50., float, help="Time per timestep.", help_default="One week (1/50)")
-        cost_s     = config("cost_s", 0.0002, float, help="Trading cost spot")
-        ubnd_as    = config("ubnd_as", 5., float, help="Upper bound for the number of shares traded at each time step")
-        lbnd_as    = config("lbnd_as", -5., float, help="Lower bound for the number of shares traded at each time step")
-        _log.verify( nSteps > 0,    "'steps' must be positive; found %ld", nSteps )
-        _log.verify( nSamples > 0,  "'samples' must be positive; found %ld", nSamples )
-        _log.verify( dt > 0., "dt must be positive; found %g", dt )
-        _log.verify( cost_s >= 0, "'cost_s' must not be negative; found %g", cost_s )
-        _log.verify( ubnd_as >= 0., "'ubnd_as' must not be negative; found %g", ubnd_as )
-        _log.verify( lbnd_as <= 0., "'lbnd_as' must not be positive; found %g", lbnd_as )
-        _log.verify( ubnd_as - lbnd_as > 0., "'ubnd_as - lbnd_as' must be positive; found %g", ubnd_as - lbnd_as)
-
-        # payoff
-        payoff_f  = config("payoff", lambda spots : - np.maximum( spots[:,-1] - 1., 0. ), help="Payoff function. Parameters is spots[samples,steps+1].", help_default="Short ATM call function")
-
-        # hedging option
-        # set strike == to turn off
-        strike    = config("strike", 1.,     float, help="Realtive strike. Set to zero to turn off option")
-        cost_v    = config("cost_v", 0.02, float, help="Trading cost vega")
-        cost_p    = config("cost_p", 0.0005, float, help="Trading cost for the option on top of delta and vega cost")
-        ubnd_av   = config("ubnd_av", 5., float, help="Upper bound for the number of options traded at each time step")
-        lbnd_av   = config("lbnd_av", -5., float, help="Lower bound for the number of options traded at each time step")
-        _log.verify( strike >= 0., "'strike' cannot be negative; found %g", strike )
-        _log.verify( cost_v >= 0, "'cost_v' must not be negative; found %g", cost_v )
-        _log.verify( cost_p >= 0, "'cost_p' must not be negative; found %g", cost_p )
-        _log.verify( ubnd_av >= 0., "'ubnd_as' must not be negative; found %g", ubnd_av )
-        _log.verify( lbnd_av <= 0., "'lbnd_av' must not be positive; found %g", lbnd_av )
-        _log.verify( ubnd_av - lbnd_av > 0., "'ubnd_av - lbnd_as' must be positive; found %g", ubnd_av - lbnd_av )
-        
-        # drift
-        drift    = config("drift", 0.1, float, help="Mean drift of the asset")
-        rvol     = config("rvol", 0.2, float,  help="Realized vol of the asset")
-        ivol     = config("ivol", rvol, float,  help="Realized vol of the asset", help_default="Realized vol ('rvol')")
-                
-        _log.verify( rvol >= 0., "'rvol' must not be negative; found %", rvol )
-        _log.verify( ivol > 0., "'ivol' must be positive; found %", ivol )
-
-        # close config
-        config.done()
-        self.usage_report = config.usage_report()
-        self.input_report = config.input_report()
-        self.config_id    = config.unique_id
-        
-        # pre compute        
-        sqrtDt      = math.sqrt(dt)
-        time_left   = np.linspace(float(nSteps), 1., nSteps, endpoint=True) * dt
-        sqrt_time_left = np.sqrt( time_left )
-        
-        # simulate
-        # --------
-        
-        np.random.seed(seed)
-        dW          = np.random.normal(size=(nSamples,nSteps)) * sqrtDt
-        dlogS       = rvol * dW + ( drift - 0.5 * rvol * rvol ) * dt
-        logS        = np.cumsum(dlogS,axis=1)
-        spots       = np.ones((nSamples,nSteps+1))
-        spots[:,1:] = np.exp(logS)
-        spotT       = spots[:,-1]
-        dS          = spots[:,-1][:,np.newaxis] - spots[:,:nSteps]
-        cost_dS     = spots[:,:nSteps] * cost_s
-
-        dC          = np.zeros((nSamples,nSteps))
-        cost_dC     = np.zeros((nSamples,nSteps))
-        call_prices = np.zeros((nSamples,nSteps))
-        for j in range(nSteps):
-            # options
-            spot          = spots[:,j]
-            payoff        = np.maximum( 0, spotT - strike )
-            ttm           = time_left[j]
-            sqrtTTM       = sqrt_time_left[j]
-            d1            = ( np.log( spot / strike  ) + 0.5 * ivol * ivol * ttm) / ( ivol * sqrtTTM )
-            d2            = d1 - ivol * sqrtTTM
-            N1            = norm.cdf(d1)
-            N2            = norm.cdf(d2)
-            call_price    = N1 * spot - N2 * strike
-            dC[:,j]       = payoff - call_price
-            call_delta    = N1
-            call_vega     = spot * norm.pdf(d1) * sqrtTTM
-            cost_dC[:,j]  = cost_v * np.abs(call_vega) + cost_s * np.abs(call_delta) + cost_p * abs(call_price)
-            call_prices[:,j] = call_price
-
-        dInsts       = np.zeros((nSamples,nSteps,2))
-        cost         = np.zeros((nSamples,nSteps,2))
-        ubnd_a       = np.zeros((nSamples,nSteps,2))
-        lbnd_a       = np.zeros((nSamples,nSteps,2))
-        prices       = np.zeros((nSamples,nSteps,2))
-        
-        dInsts[:,:,0] = dS
-        dInsts[:,:,1] = dC
-        cost[:,:,0]   = cost_dS
-        cost[:,:,1]   = cost_dC
-        ubnd_a[:,:,0] = ubnd_as
-        ubnd_a[:,:,1] = ubnd_av
-        lbnd_a[:,:,0] = lbnd_as
-        lbnd_a[:,:,1] = lbnd_av
-        prices[:,:,0] = spots[:,:-1]
-        prices[:,:,1] = call_prices
-
-        # payoff
-        # ------
-        
-        payoff    = payoff_f( spots )
-        payoff    = payoff[:,0] if payoff.shape == (nSamples,1) else payoff
-        _log.verify( payoff.shape == (nSamples,), "'payoff' function which receives a vector spots[nSamples,nSteps+1] must return a vector of size nSamples. Found shape %s", payoff.shape )
-        
-        # -----------------------------
-        # store data
-        # -----------------------------
-        
-        # market
-        # note that market variables are *not* automatically features
-        # as trhey often look ahead
-        
-        self.data = pdct()
-        self.data.market = pdct(
-                hedges    = dInsts,
-                cost      = cost,
-                ubnd_a    = ubnd_a, 
-                lbnd_a    = lbnd_a,
-                payoff    = payoff
-            )
-        
-        # features
-        # observable variables for the agent
-        self.data.features = pdct(
-            per_step = pdct(
-                # both spot and option, if present
-                cost   = cost,            # trading cost
-                price  = prices,          # price 
-                ubnd_a = ubnd_a,          # bounds. Currently those are determinstic so don't use
-                lbnd_a = lbnd_a,
-                                          # time
-                time_left      = np.full( (nSamples, nSteps), time_left[np.newaxis,:] ),
-                sqrt_time_left = np.full( (nSamples, nSteps), sqrt_time_left[np.newaxis,:] ),
-                # specific to spot
-                spot   = prices[:,:,0]    # spot at beginning of each interval, and at the end
-                ),
-            per_path = pdct(),
-            )
- 
-        # data
-        # what gym() gets
-        
-        self.tf_data = tf_dict(
-            features = self.data.features,
-            market   = self.data.market,
-            )
-    
-        # diagnostics
+        # details
         # variables for visualization, but not available for the agent
-        # Nothing for this world.
-        self.diagnostics = pdct(
-                spots1 = spots   # spots including nSteps (e.g. maturity)
+        self.details = pdct(
+            # mandatory (used by ploting)
+            spot_all     = spot,      # [nSamples,nSteps+1] spots including spot at T
+            # per model 
+            drift     = rdrift,   # drifts for each interval
+            rvol      = rvol,     # realized vols for each interval
             )
+
+        # check numerics
+        assert_iter_not_is_nan( self.details, "details" )
         
         # generating sample weights
         # the tf_sample_weights is passed to keras train and must be of size [nSamples,1]
         # https://stackoverflow.com/questions/60399983/how-to-create-and-use-weighted-metrics-in-keras
         self.sample_weights = np.full((nSamples,1),1./float(nSamples))
         self.tf_sample_weights \
-                       = tf.constant( self.sample_weights, dtype=self.dtype)   # must be of size [nSamples,1] https://stackoverflow.com/questions/60399983/how-to-create-and-use-weighted-metrics-in-keras
+                       = tf.constant( self.sample_weights, dtype=self.np_dtype)   # must be of size [nSamples,1] https://stackoverflow.com/questions/60399983/how-to-create-and-use-weighted-metrics-in-keras
         self.sample_weights = self.sample_weights.reshape((nSamples,))
-        self.tf_y      = tf.zeros((nSamples,), dtype=self.dtype)
+        self.tf_y      = tf.zeros((nSamples,), dtype=self.np_dtype)
         self.nSteps    = nSteps
         self.nSamples  = nSamples
-        self.nInst     = 2
+        self.nInst     = 1 if strike <= 0. else 2
         self.dt        = dt
-        self.timeline1 = np.cumsum( np.linspace( 0., nSteps, nSteps+1, endpoint=True, dtype=np.float32 ) ) * dt
-        self.timeline  = self.timeline1[:-1]
         
-        self.inst_names = [ 'spot', 'call' ]
+        self.inst_names = [ 'spot' ]
+        if strike > 0.:
+            self.inst_names.append( "ATM Call" )
         
     def clone(self, config_overwrite = Config(), **kwargs ):
         """
@@ -781,10 +585,10 @@ class SimpleWorld_Stock_Option(object):
             kwargs['seed'] = int(np.random.randint(0,0x7FFFFFFF))
         config = self.config.copy()
         config.update( config_overwrite, **kwargs )        
-        return SimpleWorld_Stock_Option( config )
+        return SimpleWorld_Spot_ATM( config )
 
     def plot(self, config = Config(), **kwargs ):
-        """ Plot simple world.  """
+        """ Plot simple world """
         
         config.update(kwargs)
         col_size     = config.fig("col_size", 5, int, "Figure column size")
@@ -792,8 +596,10 @@ class SimpleWorld_Stock_Option(object):
         plot_samples = config("plot_samples", 5, int, "Number of samples to plot")
         print_input  = config("print_input", True, bool, "Whether to print the config inputs for the world")
         
-        xSamples = np.linspace(0,self.nSamples,plot_samples,endpoint=False, dtype=int)
-        
+        xSamples  = np.linspace(0,self.nSamples,plot_samples,endpoint=False, dtype=int)
+        timeline1 = np.cumsum( np.linspace( 0., self.nSteps, self.nSteps+1, endpoint=True, dtype=np.float32 ) ) * self.dt
+        timeline  = timeline1[:-1]
+
         print(self.config.usage_report())
         
         fig = figure(tight=True, col_size=col_size, row_size=row_size, col_nums=3 )
@@ -804,24 +610,58 @@ class SimpleWorld_Stock_Option(object):
         ax.set_title("Spot")
         ax.set_xlabel("Time")
         for i, color in zip( xSamples, colors_tableau() ):
-            ax.plot( self.timeline1, self.diagnostics.spots1[i,:], "-", color=color )
-        ax.plot( self.timeline1, np.mean( self.diagnostics.spots1, axis=0), "_", color="black", label="mean" )
+            ax.plot( timeline1, self.details.per_step.spot1[i,:], "-", color=color )
+        ax.plot( timeline1, np.mean( self.details.per_step.spot1, axis=0), "_", color="black", label="mean" )
 #        ax.get_xaxis().get_major_formatter().get_useOffset(False)
         ax.legend()
         
-        # call prices
+        # drift
         ax  = fig.add_plot()
-        ax.set_title("Call Prices")
+        ax.set_title("Drift")
         ax.set_xlabel("Time")
         for i, color in zip( xSamples, colors_tableau() ):
-            ax.plot( self.timeline, self.data.features.per_step.price[i,:,1], "-", color=color )
-        ax.plot( self.timeline, np.mean( self.data.features.per_step.price[:,:,1], axis=0), "_", color="black", label="mean" )
+            ax.plot( timeline, self.details.per_step.drift[i,:], "-", color=color )
+        ax.plot( timeline, np.mean( self.details.per_step.drift, axis=0), "_", color="black", label="mean" )
+        
+        # vols
+        ax  = fig.add_plot()
+        ax.set_title("Volatilities")
+        ax.set_xlabel("Time")
+        for i, color in zip( xSamples, colors_tableau() ):
+            ax.plot( timeline, self.data.features.per_step.ivol[i,:], "-", color=color )
+            ax.plot( timeline, self.details.per_step.rvol[i,:], ":", color=color )
+        
+        if self.nInst > 1:
+            # call prices
+            ax  = fig.add_plot(True)
+            ax.set_title("Call Prices")
+            ax.set_xlabel("Time")
+            for i, color in zip( xSamples, colors_tableau() ):
+                ax.plot( timeline, self.data.features.per_step.call_price[i,:], "-", color=color )
+            ax.plot( timeline, np.mean( self.data.features.per_step.call_price, axis=0), "_", color="black", label="mean" )
+            ax.legend()
+            
+            # call delta
+            ax  = fig.add_plot()
+            ax.set_title("Call Deltas")
+            ax.set_xlabel("Time")
+            for i, color in zip( xSamples, colors_tableau() ):
+                ax.plot( timeline, self.data.features.per_step.call_delta[i,:], "-", color=color )
+            ax.plot( timeline, np.mean( self.data.features.per_step.call_delta, axis=0), "_", color="black", label="mean" )
+            ax.legend()
+            
+            # call vega
+            ax  = fig.add_plot()
+            ax.set_title("Call Vegas")
+            ax.set_xlabel("Time")
+            for i, color in zip( xSamples, colors_tableau() ):
+                ax.plot( timeline, self.data.features.per_step.call_vega[i,:], "-", color=color )
+            ax.plot( timeline, np.mean( self.data.features.per_step.call_vega, axis=0), "_", color="black", label="mean" )
+            ax.legend()
         
         fig.render()
         del fig        
 
         if print_input:
             print("Config settings:\n%s" % self.input_report)
-
-
 

@@ -14,6 +14,7 @@ from collections.abc import Mapping
 import numpy as np
 import tensorflow as tf
 import math as math
+import inspect as inspect
 import tensorflow_probability as tfp # NOQA
 _log = Logger(__file__)
 
@@ -21,9 +22,9 @@ _log = Logger(__file__)
 # Manage tensor flow
 # -------------------------------------------------
 
-version = [ int(x) for x in tf.__version__.split(".") ]
-version = version[0]*100+version[1]
-_log.verify( version >= 203, "Tensor Flow version 2.3 required. Found %s", tf.__version__)
+TF_VERSION = [ int(x) for x in tf.__version__.split(".") ]
+TF_VERSION = TF_VERSION[0]*100+TF_VERSION[1]
+_log.verify( TF_VERSION >= 207, "Tensor Flow version 2.7 required. Found %s", tf.__version__)
 
 NUM_GPU = len(tf.config.list_physical_devices('GPU'))
 NUM_CPU = len(tf.config.list_physical_devices('CPU'))
@@ -33,6 +34,19 @@ print("Tensorflow version %s running on %ld CPUs and %ld GPUs" % (tf.__version__
 dh_dtype = tf.float32
 tf.keras.backend.set_floatx(dh_dtype.name)
 
+"""
+DIM_DUMMY
+Each world data dictionary must have an element with this name, whcih needs to be of dimension (None,1)
+This is used in layers.VariableLayer in order to scale the variable up to the number of samples
+
+The reason the dimension is (None,1) and not (None,) is that older Tensorflow versions auto-upscale data
+of dimension (None,) to (None,1) anyway.
+
+It's not a pretty construction but there seems to be no other nice way in TF to find our current sample size.
+"""                                
+
+DIM_DUMMY = "_dimension_dummy"  
+        
 # -------------------------------------------------
 # TF <--> NP
 # -------------------------------------------------
@@ -80,9 +94,9 @@ def tfCast( x, native = True, dtype=None ):
     _log.verify( False, "Cannot convert object of type '%s' to tensor", x.__class__.__name__)
     return None
 
-def tf_dict(**kwargs):
+def tf_dict( dtype=None, **kwargs ):
     """ Return a (standard) dictionary of tensors """
-    return tfCast(kwargs)
+    return tfCast(kwargs, dtype=dtype)
 
 def npCast( x, dtype=None ):
     """
@@ -175,11 +189,14 @@ def tf_make_dim( tensor : tf.Tensor, dim : int ) -> tf.Tensor:
     -------
         Flat tensor.
     """
-    if len(tensor.shape) > dim:
-        return tf_back_flatten(tensor,dim)
-    while len(tensor.shape) < dim:
-        tensor = tensor[...,tf.newaxis]
-    return tensor
+    try:
+        if len(tensor.shape) > dim:
+            return tf_back_flatten(tensor,dim)
+        while len(tensor.shape) < dim:
+            tensor = tensor[...,tf.newaxis]
+        return tensor
+    except AttributeError as e:
+        _log.throw( "Error converting tensor to dimension %ld: %s\nTensor is %s of type %s", dim, e, str(tensor), type(tensor) )
 
 # -------------------------------------------------
 # Basic arithmetics for non-uniform distributions
@@ -213,7 +230,7 @@ def err( P : np.ndarray, w : np.ndarray, axis : int = None ) -> np.ndarray:
     assert np.sum(np.isnan(e)) == 0, "Internal error: %g" % e
     return e
 
-def mean_bins( x : np.ndarray, bins : int, weights = None ) -> np.ndarray:
+def mean_bins( x : np.ndarray, bins : int, weights = None, return_std = False ) -> np.ndarray:
     """
     Return a vector of 'bins' means of x.
     Bins the vector 'x' into 'bins' bins, then computes the mean of each bin, and returns the resulting vector of length 'bins'.
@@ -232,25 +249,37 @@ def mean_bins( x : np.ndarray, bins : int, weights = None ) -> np.ndarray:
             Number of bins
         weights : vector
             Sample weights or zero for unit weights
+        return_std : bool
+            If true, function returns a tuple of means and std devs
     Returns
     -------
-        Numpy array of bins.
+        Numpy array of bins, or tuple of means and std devs of return_std is True
     """
-    def w_mean(x,p,i1,i2):
-        return np.mean( x[i1:i2] ) if p is None else np.sum( (x*p)[i1:i2] ) / np.sum( p[i1:i2] )
-
-    x    = np.asarray(x)
-    l    = len(x)
+    def w_mean_err(x,p,i1,i2):
+        p_ = p[i1:i2]
+        x_ = x[i1:i2]
+        pp = np.sum( p_ )
+        if pp<=1E-12:
+            return 0.,0.
+        mean = np.sum( p_*x_ ) / pp
+        var  = np.sum( p_*((x_-mean)**2) ) / pp
+        err  = math.sqrt( var )
+        return [ mean, err ]
+    
+    x        = np.asarray(x)
+    l        = len(x)
     assert len(x.shape) == 1, "Only plaoin vectors are supported. Need to extend to more axes"
+    weights  = weights if not weights is None else np.full( x.shape, 1./float(len(x)) )
     if l <= bins:
-        return x
+        return x if not return_std else (x, np.zeros_like(x))
     assert bins > 0, "'bins' must be positive"
-    if bins == 1:
-        return w_mean(x,weights,0,l)
 
-    ixs  = np.linspace(0,l,bins+1, endpoint=True, dtype=np.int32)
-    bins = np.array( [ w_mean(x,weights,ixs[i],ixs[i+1]) for i in range(bins) ] )
-    return bins
+    ixs     = np.linspace(0,l,bins+1, endpoint=True, dtype=np.int32)
+    results = np.array( [ w_mean_err(x,weights,ixs[i],ixs[i+1]) for i in range(bins) ] )
+    assert results.shape == (bins,2), "Found shape %s" % str(results.shape)
+    if not return_std:
+        return results[:,0]
+    return results[:,0], results[:,1]
     
 def mean_cum_bins( x : np.ndarray, bins : int, weights = None ) -> np.ndarray:
     """
@@ -370,8 +399,63 @@ def fmt_big_number( number : int ) -> str:
         return "%gK" % number
     return str(number)
 
+# -------------------------------------------------
+# Complex utilities
+# -------------------------------------------------
 
+def create_optimizer( train_config : Config ):
+    """
+    Creates an optimizer from a config object
+    The keywords accepted are those documented for https://www.tensorflow.org/api_docs/python/tf/keras/optimizers
+    
+    You can use:
+        config.optimizer = "adam"
+        config.optimizer = tf.keras.optimizers.Adam(learning_rate = 0.01)
+        
+    Or the new form for TF2.11 optimizers
+    
+    """    
+    # legacy 1.0 support
+    if 'optimizer' in train_config:
+        return train_config("optimizer", "RMSprop", help="Optimizer" )
 
+    # new version. Specify optimizer.name
+    config    = train_config.optimizer
+    name      = config("name", "adam", str, "Optimizer name. See https://www.tensorflow.org/api_docs/python/tf/keras/optimizers")
 
+    # auto-detect valid parameters
+    optimizer = tf.keras.optimizers.get(name)
+    sig_opt   = inspect.signature(optimizer.__init__)
+    classname = optimizer.__class__
+    kwargs    = {}
+    
+    # all parameters requested by the optimizer class
+    for para in sig_opt.parameters:
+        if para in ['self','name','kwargs']:
+            continue
+        default = sig_opt.parameters[para].default
+        if default == inspect.Parameter.empty:
+            # mandatory parameter
+            kwargs[para] = config(para, help="Parameter %s for %s" % (para,classname))
+        else:
+            # optional parameter
+            kwargs[para] = config(para, default, help="Parameter %s for %s" % (para,classname))
 
+    # The following parameters are understood by general tensorflow optimziers
+    hard_coded = dict(  clipnorm=None,
+                        clipvalue=None,
+                        global_clipnorm=None )
+    if TF_VERSION >= 211:
+        hard_coded.update(
+                        use_ema=False,
+                        ema_momentum=0.99,
+                        ema_overwrite_frequency=None)
+    for k in hard_coded:
+        if k in kwargs:
+            continue  # handled already
+        v = hard_coded[k]
+        kwargs[k] = config(k, v, help="Parameter %s for keras optimizers" % k)
+    
+    config.done()
+    return optimizer.__class__(**kwargs)
     
