@@ -34,8 +34,19 @@ print("Tensorflow version %s running on %ld CPUs and %ld GPUs" % (tf.__version__
 dh_dtype = tf.float32
 tf.keras.backend.set_floatx(dh_dtype.name)
 
-DIM_DUMMY = "_dimension_dummy"   # added to each world data dictionary to allow code to always asses the number of samples. Objkect is to be of dimension [None,]
+"""
+DIM_DUMMY
+Each world data dictionary must have an element with this name, whcih needs to be of dimension (None,1)
+This is used in layers.VariableLayer in order to scale the variable up to the number of samples
 
+The reason the dimension is (None,1) and not (None,) is that older Tensorflow versions auto-upscale data
+of dimension (None,) to (None,1) anyway.
+
+It's not a pretty construction but there seems to be no other nice way in TF to find our current sample size.
+"""                                
+
+DIM_DUMMY = "_dimension_dummy"  
+        
 # -------------------------------------------------
 # TF <--> NP
 # -------------------------------------------------

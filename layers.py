@@ -44,20 +44,23 @@ class VariableLayer(tf.keras.layers.Layer):
         """
         self._available_features = sorted( [ str(k) for k in shapes if not k == DIM_DUMMY ] )
         dummy_shape = shapes.get(DIM_DUMMY, None)
-        _log.verify( not dummy_shape is None, "Every data set must have a member '%s' (value of base.DIM_DUMMY) of dimension [None,]. Found data: %s", DIM_DUMMY, self.available_features )
-        _log.verify( len(dummy_shape) == 2 and dummy_shape[1] == 1, "Every data set must have a member '%s' (value of base.DIM_DUMMY) of dimension [None,1]. Found data: %s of shape %s", DIM_DUMMY, self.available_features, dummy_shape.as_list() )
+        _log.verify( not dummy_shape is None, "Every data set must have a member '%s' (see base.DIM_DUMMY) of shape (None,1). Data member not found data: %s", DIM_DUMMY, list(self.available_features) )
+        _log.verify( len(dummy_shape) == 2, "Data set member '%s' (see base.DIM_DUMMY) nust be of shape [None,1], not of shape %s", DIM_DUMMY, dummy_shape.as_list() )
+        _log.verify( int(dummy_shape[1]) == 1, "Data set member '%s' (see base.DIM_DUMMY) nust be of shape [None,1], not of shape %s", DIM_DUMMY, dummy_shape.as_list() )
         
     def call( self, dummy_data : dict = None, training : bool = False ) -> tf.Tensor:
         """
         Return variable value
-        The returned tensor will be of dimension [None,] if self is a float, and otherwise of dimension [None, ...]
-        
-        The 'dummy_data' dictionary must have an element DIM_DUMMY of dimension [None,1]
+        The returned tensor will be of dimension [None,] if self.variable is a float, and otherwise of dimension [None, ...] where '...' refers to the dimension of the variable.        
+
+        The 'dummy_data' dictionary must have an element DIM_DUMMY of dimension (None,).
         """
-        dummy = dummy_data[DIM_DUMMY][:,0]
-        if len(self.variable.shape) == 0:
-            return dummy*0. + self.variable
-        x = (dummy*0.)[:,tf.newaxis] + self.variable[tf.newaxis,...]
+        dummy = dummy_data[DIM_DUMMY]
+        assert len(dummy.shape) == 2, "Internal error: shape %s not (None,)" % str(dummy.shape.as_list())
+        x     = tf.zeros_like(dummy[:,0])
+        while len(x.shape) <= len(self.variable.shape):
+            x = x[:,tf.newaxis,...]
+        x = x + self.variable[tf.newaxis,...]
         return x
     
     @property

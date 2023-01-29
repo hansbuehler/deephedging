@@ -7,7 +7,7 @@ June 30, 2022
 @author: hansbuehler
 """
 
-from .base import Logger, Config, tf, dh_dtype, tfCast, fmt_list
+from .base import Logger, Config, tf, dh_dtype, tfCast, fmt_list, DIM_DUMMY
 from .layers import DenseLayer, VariableLayer
 from cdxbasics import PrettyDict as pdct
 from collections.abc import Mapping
@@ -171,6 +171,7 @@ class MonetaryUtility(tf.keras.Model):
         """
         Computes the utility of a payoff with classic optimization.
         This function only works if 'y' is stateless.
+        Note that this function is not very accurate. Use trainer.train_utillity() for a more accurate version using tensorflow.
         
         Parameters
         ----------
@@ -184,7 +185,7 @@ class MonetaryUtility(tf.keras.Model):
         
         try:
             # trigger build(). This will fail if 'y' expects some features 
-            _ = self.y(data={})
+            _ = self.y(data={DIM_DUMMY:(payoff*0.)[:,np.newaxis]})
         except KeyError as k:
             _log.verify( self.nFeatures == 0, "Utility intercept 'y' relies on %ld features %s. Cannot compute simple initial utility. Use TensorFlow.", self.nFeatures,self.features )
 
@@ -196,17 +197,19 @@ class MonetaryUtility(tf.keras.Model):
         sample_weights   = sample_weights[:,0] if not sample_weights is None and len(sample_weights.shape) == 2 and sample_weights.shape[1] == 1 else sample_weights
         
         _log.verify( payoff.shape == sample_weights.shape, "'payoff' must have same shape as 'sample_weights'. Found %s and %s, respectively", payoff.shape, sample_weights.shape )
-        
+
+        payoff           = tf.convert_to_tensor(payoff)
+
         def objective(y):
             y = np.array(y, dtype=np_dtype)
-            r = utility(self.utility, self.lmbda, tf.convert_to_tensor(payoff), y=tf.convert_to_tensor(y) )
+            r = utility(self.utility, self.lmbda, payoff, y=tf.convert_to_tensor(y) )
             u = np.array( r.u, dtype=np_dtype )
             u = np.sum( sample_weights * u )
             return -u
 
-        r0 = -objective(0.)  # will throw any errors
+        _  = objective(0.)   # triggers errors if any
         r  = minimize_scalar( objective, **minimize_scalar_kwargs )
-        _log.verify( r.success, "Failed to find optimal intercept 'y' for utility %s with risk aversion %g: %s", self.utility, self.lmbda, r.message )
+        if not r.success: _log.throw( "Failed to find optimal intercept 'y' for utility %s with risk aversion %g: %s", self.utility, self.lmbda, r.message )
         return -r.x
         
         

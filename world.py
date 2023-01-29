@@ -386,7 +386,7 @@ class SimpleWorld_Spot_ATM(object):
             
         # the following variables must always be present in any world
         # it allows to cast dimensionless variables to the number of samples
-        self.data.features.per_path[DIM_DUMMY] = payoff * 0.
+        self.data.features.per_path[DIM_DUMMY] = (payoff * 0.)[:,np.newaxis]  # (None,1)
 
         # check numerics
         assert_iter_not_is_nan( self.data, "data" )
