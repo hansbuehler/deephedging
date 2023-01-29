@@ -8,8 +8,30 @@ The notebook directory has a number of examples on how to use it.
 ### Latest major updates:
 * **Enabled caching** (Jan 8th, 2023): by default, the code now caches progress every 10 epochs. Training will be picked up at the last caching point when the same code is re-run. If training completed, running the same code again will not trigger new training; you can set `config.train.caching.mode = 'update'`.
 
-* **Recurrent Agents** (Jan 8th, 2023): the trading agent can now pass on a state from one step to another, allowing it full recurrence. Enable it with `config.gym.agent.recurrence =  r`, where `r` denotes the number of real numbers the agent may pass from one step
-to the next.
+* **Recurrent Agents** (Jan 8th, 2023): the trading agent can now pass on a state from one step to another, allowing it full recurrence. Enable it with `config.gym.agent.recurrence =  r`, where `r` denotes the number of real numbers the agent may pass from one step to the next. 
+As of Jan 29th you can also specify recurrent nodes which have 0 or 1 values using `config.gym.agent.recurrence01 = r`.
+
+* **Initial Delta Hedge** (Jan 29th, 2023): by default an additional agent is created which learns an initial delta hedge. This is useful when the `payoff` provided is not yet hedged, and therefore when the initial hedge differs materially from subsequent hedges. This can be turned off with `config.gym.agent.init_delta.active = False`.
+
+* **Optimiers** (Jan 29th, 2023): upgraded the code so optimizers can be controlled more tightly. The code also now uses TF 2.10 style optimizers.
+You can now write
+    ```
+    config.trainer.train.optimizer.name = "adam"
+    config.trainer.train.optimizer.learning_rate = 0.001
+    config.trainer.train.optimizer.clipvalue = 1.
+    config.trainer.train.optimizer.global_clipnorm = 1.
+    ```
+
+* **TensorFlow loops** (Jan 29th, 2023): the code no longer unrolls the core Deep Hedging loop, but uses `tf_while` implicitly. This helps preserving memory when many time steps are used.
+
+* **TensorBoard** (Jan 29th, 2023): added support for TensorBoard. See `notebooks/trainer-board.ipynb`. However, I did not manage to make it run on SageMaker, neither did I manage to run the profiler on my own machine.
+
+* **Visualization Update** (Jan 29th, 2023): improved visualization during training by adding (a) a view on spot delta and actions, and by adding several views which include the stddev from the mean per plotted bin.  Also added better information on network setup and features used.
+
+* **Notebooks** (Jan 29th, 2023):
+    * Added `notebooks/trainer-bs.ipynb` showing convergence of the Deep Hedging strategy vs Black & Scholoes. 
+    * Added `notebooks/trainer-recurrent-fwdstart.ipynb` which shows the improved (but not perfect) performance of recurrent networks vs standard feed forward networks for forward started options.
+    * Added `notebooks/utility0.ipynb` which illustrates various monetary utilities.
 
 _Beta version. Please report any issues. Please see installation support below._
 
@@ -246,26 +268,39 @@ The graphs show:
     
     * (1c): learned utility for the hedged payoff, last 100 epochs.
     
-    * (1c): learned utility for the unhedged payoff, last 100 epochs.
+    * (1d): learned utility for the unhedged payoff, last 100 epochs.
+
+    * (1e): memory usage
     
 * (2) visualizing the result on the training set:
     
     * (2a) for the training set shows the payoff as function of terminal spot, the hedge, and the overall gains i.e. payoff plus hedge less cost. Each of these is computed less their monetary utility, hence you are comparing terminal payoffs which have the same initial monetary utility.
 
-        Note that visualizing terminal payoffs makes sense for European payoffs, but is a lot less intuitive for more exotic payoffs.
-
-    * (2b) similar to (2a), but without subtracting the monetary utility.
+    * (2b) visualizing terminal payoffs makes sense for European payoffs, but is a lot less intuitive for more exotic payoffs. Hence, (2b) shows the same data is (2a) but
+    it adds one stddev for the value of the payoff for a given terminal spot.
 
     * (2c) shows the utility for payoff and gains by percentile for the training set. Higher is better; the algorithm
     is attempting to beat the total expected utility which is the left most percentile. In the example we see that the gains process dominates the initial payoff in all percentiles.
     
     * (2a', 2b', 2c') are the same graphs but for the validation set 
     
-* (3) visualizes actions:
+* (3, 4) visualize actions:
     
     * (3a) shows  actions per time step: blue the spot, and orange the option.
     * (3b) shows the aggregated action as deltas accross time steps. Note that the concept of "delta" only makes sense if the instrument is actually the same per time step, e.g. spot of an stock price. For floating options this is not a particularly meaningful concept.
-        
+
+    * (4a) shows the average action for the first asset (spot) for a few time steps over spot bins.
+    * (4b) shows the avergae delta for the first asset for a a few time steps over spot bins.
+    * (4a*) shows the same as (4a), but also showing a one stddev bar around each bin mid-point.
+    * (4b*) the same for (4b)
+
+Text information:
+
+* (A) provides information on the number of weights used, whether an initial delta or recurrent weights were used, features used and available, and the utility.
+
+  It also shows the caching path.
+
+* (B) Provides information during training on progress, and an estimate of total time required.
     
 
     
@@ -290,10 +325,14 @@ Copied from `notebooks/trainer.ipynb`:
     config.world.black_scholes = True
     # gym
     config.gym.objective.utility = "cvar"
-    config.gym.objective.lmbda = 10.
+    config.gym.objective.lmbda = 1.
     config.gym.agent.network.depth = 3
     config.gym.agent.network.activation = "softplus"
     # trainer
+    config.trainer.train.optimizer.name = "adam"
+    config.trainer.train.optimizer.learning_rate = 0.001
+    config.trainer.train.optimizer.clipvalue = 1.
+    config.trainer.train.optimizer.global_clipnorm = 1.
     config.trainer.train.batch_size = None
     config.trainer.train.epochs = 400
     config.trainer.visual.epoch_refresh = 1
@@ -304,8 +343,8 @@ Copied from `notebooks/trainer.ipynb`:
     display(Markdown("## Deep Hedging in a Black \& Scholes World"))
 
     # create world
-    world      = SimpleWorld_Spot_ATM( config.world ) # training set
-    val_world  = world.clone(samples=1000)            # validation set
+    world      = SimpleWorld_Spot_ATM( config.world )              # training set
+    val_world  = world.clone(samples=config.world("samples")//2)   # validation set
 
     # create training environment
     gym = VanillaDeepHedgingGym( config.gym )
@@ -324,22 +363,31 @@ Copied from `notebooks/trainer.ipynb`:
     config.done()
     ## Config Parameters
 
-Below is the output of the `print( config.usage_report() )` call above. It provides a summary of all config values available, their defaults, and what values where used.
+Below is an example output  `print( config.usage_report() )`. It provides a summary of all config values available, their defaults, and what values where used.
 
     =========================================
     Config usage report
     =========================================
+    config.gym.agent.init_delta.network['activation'] = relu # Network activation function; default: relu
+    config.gym.agent.init_delta.network['depth'] = 1 # Network depth; default: 1
+    config.gym.agent.init_delta.network['final_activation'] = linear # Network activation function for the last layer; default: linear
+    config.gym.agent.init_delta.network['width'] = 1 # Network width; default: 1
+    config.gym.agent.init_delta.network['zero_model'] = False # Create a model with zero initial value, but randomized initial gradients; default: False
+    config.gym.agent.init_delta['active'] = True # Whether or not to train in addition a delta layer for the first step; default: True
+    config.gym.agent.init_delta['features'] = [] # Named features for the agent to use for the initial delta network; default: []
     config.gym.agent.network['activation'] = softplus # Network activation function; default: relu
     config.gym.agent.network['depth'] = 3 # Network depth; default: 3
     config.gym.agent.network['final_activation'] = linear # Network activation function for the last layer; default: linear
     config.gym.agent.network['width'] = 20 # Network width; default: 20
     config.gym.agent.network['zero_model'] = False # Create a model with zero initial value, but randomized initial gradients; default: False
+    config.gym.agent.state['features'] = [] # Named features for the agent to use for the initial state network; default: []
     config.gym.agent['agent_type'] = feed_forward # Which network agent type to use; default: feed_forward
     config.gym.agent['features'] = ['price', 'delta', 'time_left'] # Named features for the agent to use; default: ['price', 'delta', 'time_left']
-    config.gym.agent['recurrence'] = 0 # Number of recurrent states. Set to zero to turn off recurrence; default: 0
+    config.gym.agent['recurrence'] = 0 # Number of real recurrent states. Set to zero to turn off recurrence; default: 0
+    config.gym.agent['recurrence01'] = 0 # Number of digital recurrent states. Set to zero to turn off recurrence; default: 0
     config.gym.environment['hard_clip'] = False # Use min/max instread of soft clip for limiting actions by their bounds; default: False
     config.gym.environment['outer_clip'] = True # Apply a hard clip 'outer_clip_cut_off' times the boundaries; default: True
-    config.gym.environment['outer_clip_cut_off'] = 100.0 # Multiplier on bounds for outer_clip; default: 100.0
+    config.gym.environment['outer_clip_cut_off'] = 10.0 # Multiplier on bounds for outer_clip; default: 10.0
     config.gym.environment['softclip_hinge_softness'] = 1.0 # Specifies softness of bounding actions between lbnd_a and ubnd_a; default: 1.0
     config.gym.objective.y.network['activation'] = relu # Network activation function; default: relu
     config.gym.objective.y.network['depth'] = 3 # Network depth; default: 3
@@ -347,32 +395,43 @@ Below is the output of the `print( config.usage_report() )` call above. It provi
     config.gym.objective.y.network['width'] = 20 # Network width; default: 20
     config.gym.objective.y.network['zero_model'] = False # Create a model with zero initial value, but randomized initial gradients; default: False
     config.gym.objective.y['features'] = [] # Path-wise features used to define 'y'. If left empty, then 'y' becomes a simple variable; default: []
-    config.gym.objective['lmbda'] = 10.0 # Risk aversion; default: 1.0
+    config.gym.objective['lmbda'] = 1.0 # Risk aversion; default: 1.0
     config.gym.objective['utility'] = cvar # Type of monetary utility; default: exp2
     config.gym.tensorflow['seed'] = 423423423 # Set tensor random seed. Leave to None if not desired; default: 423423423
-    config.trainer.caching['directory'] = ~/dh_cache # If specified, will use the directory to store a persistence file for the model; default: ~/dh_cache
+    config.trainer.caching['debug_file_name'] = None # Allows overwriting the filename for debugging an explicit cached state; default: None
+    config.trainer.caching['directory'] = ./.deephedging_cache # If specified, will use the directory to store a persistence file for the model; default: ./.deephedging_cache
     config.trainer.caching['epoch_freq'] = 10 # How often to cache results, in number of epochs; default: 10
     config.trainer.caching['mode'] = on # Caching strategy: 'on' for standard caching; 'off' to turn off; 'update' to overwrite any existing cache; 'clear' to clear existing caches; 'readonly' to read existing caches but not write new ones; default: on
+    config.trainer.debug['check_numerics'] = False # Whether to check numerics; default: False
+    config.trainer.train.optimizer['amsgrad'] = False # Parameter amsgrad for <class 'keras.optimizers.optimizer_v2.adam.Adam'>; default: False
+    config.trainer.train.optimizer['beta_1'] = 0.9 # Parameter beta_1 for <class 'keras.optimizers.optimizer_v2.adam.Adam'>; default: 0.9
+    config.trainer.train.optimizer['beta_2'] = 0.999 # Parameter beta_2 for <class 'keras.optimizers.optimizer_v2.adam.Adam'>; default: 0.999
+    config.trainer.train.optimizer['clipnorm'] = None # Parameter clipnorm for keras optimizers; default: None
+    config.trainer.train.optimizer['clipvalue'] = None # Parameter clipvalue for keras optimizers; default: None
+    config.trainer.train.optimizer['epsilon'] = 1e-07 # Parameter epsilon for <class 'keras.optimizers.optimizer_v2.adam.Adam'>; default: 1e-07
+    config.trainer.train.optimizer['global_clipnorm'] = None # Parameter global_clipnorm for keras optimizers; default: None
+    config.trainer.train.optimizer['learning_rate'] = 0.001 # Parameter learning_rate for <class 'keras.optimizers.optimizer_v2.adam.Adam'>; default: 0.001
+    config.trainer.train.optimizer['name'] = adam # Optimizer name. See https://www.tensorflow.org/api_docs/python/tf/keras/optimizers; default: adam
     config.trainer.train.tensor_board['hist_freq'] = 1 # Specify tensor board log frequency; default: 1
     config.trainer.train.tensor_board['log_dir'] =  # Specify tensor board log directory
+    config.trainer.train.tensor_board['profile_batch'] = 0 # Batch used for profiling. Set to non-zero to activate profiling; default: 0
     config.trainer.train['batch_size'] = None # Batch size; default: None
-    config.trainer.train['epochs'] = 400 # Epochs; default: 100
+    config.trainer.train['epochs'] = 800 # Epochs; default: 100
     config.trainer.train['learing_rate'] = None # Manually set the learning rate of the optimizer; default: None
-    config.trainer.train['optimizer'] = RMSprop # Optimizer; default: RMSprop
     config.trainer.train['run_eagerly'] = False # Keras model run_eagerly. Turn to True for debugging. This slows down training. Use None for default; default: False
-    config.trainer.train['time_out'] = None # Timeout in seconds. None for no timeout; default: None
+    config.trainer.train['tf_verbose'] = 0 # Verbosity for TensorFlow fit(); default: 0
     config.trainer.visual.fig['col_nums'] = 6 # Number of columbs; default: 6
     config.trainer.visual.fig['col_size'] = 5 # Plot size of a column; default: 5
     config.trainer.visual.fig['row_size'] = 5 # Plot size of a row; default: 5
-    config.trainer.visual['bins'] = 200 # How many x to plot; default: 200
+    config.trainer.visual['bins'] = 100 # How many x to plot; default: 100
     config.trainer.visual['confidence_pcnt_hi'] = 0.75 # Upper percentile for confidence intervals; default: 0.5
     config.trainer.visual['confidence_pcnt_lo'] = 0.25 # Lower percentile for confidence intervals; default: 0.5
-    config.trainer.visual['epoch_refresh'] = 1 # Epoch fefresh frequency for visualizations; default: 10
+    config.trainer.visual['epoch_refresh'] = 5 # Epoch fefresh frequency for visualizations; default: 10
     config.trainer.visual['err_dev'] = 1.0 # How many standard errors to add to loss to assess best performance; default: 1.0
-    config.trainer.visual['lookback_window'] = 30 # Lookback window for determining y min/max; default: 30
+    config.trainer.visual['lookback_window'] = 200 # Lookback window for determining y min/max in graphs; default: 200
     config.trainer.visual['show_epochs'] = 100 # Maximum epochs displayed; default: 100
-    config.trainer.visual['time_refresh'] = 10 # Time refresh interval for visualizations; default: 20
-    config.trainer['monitor_type'] = notebook # What kind of progress monitor to use. Set to 'notebook' for jupyter use; default: notebook
+    config.trainer.visual['time_slices'] = 10 # How many slice of spot action and delta to print; default: 10
+    config.trainer['output_level'] = all # What to print during training; default: all
     config.world['black_scholes'] = True # Hard overwrite to use a black & scholes model with vol 'rvol' and drift 'drift'. Also turns off the option as a tradable instrument by setting strike = 0; default: False
     config.world['corr_ms'] = 0.5 # Correlation between the asset and its mean; default: 0.5
     config.world['corr_vi'] = 0.8 # Correlation between the implied vol and the asset volatility; default: 0.8
@@ -392,7 +451,7 @@ Below is the output of the `print( config.usage_report() )` call above. It provi
     config.world['meanrev_rvol'] = 2.0 # Mean reversion for realized vol vs implied vol; default: 2.0
     config.world['no_stoch_drift'] = False # If true, turns off the stochastic drift of the asset, by setting meanrev_drift = 0. and drift_vol = 0; default: False
     config.world['no_stoch_vol'] = False # If true, turns off stochastic realized and implied vol, by setting meanrev_*vol = 0 and volvol_*vol = 0; default: False
-    config.world['payoff'] = <function SimpleWorld_Spot_ATM.__init__.<locals>.<lambda> at 0x7fc935c38b80> # Payoff function with parameter spots[samples,steps+1]. Must return a vector [samples]. The default is a short call with strike 1: '- np.maximum( spots[:,-1] - 1, 0. )'. A short forward starting ATM call is given as '- np.maximum( spots[:,-1] - spots[:,0], 0. )'. You can also use None for zero, or a simple float; default: Short call with strike 1
+    config.world['payoff'] = atmcall # Payoff function with parameter spots[samples,steps+1]. Can be a function which must return a vector [samples]. Can also be short 'atmcall' or short 'atmput', or a fixed numnber. The default is 'atmcall' which is a short call with strike 1: '- np.maximum( spots[:,-1] - 1, 0. )'. A short forward starting ATM call is given as '- np.maximum( spots[:,-1] - spots[:,0], 0. )'; default: atmcall
     config.world['rcorr_vs'] = -0.5 # Residual correlation between the asset and its implied volatility; default: -0.5
     config.world['rvol'] = 0.2 # Initial realized volatility; default: 0.2
     config.world['samples'] = 10000 # Number of samples; default: 1000
@@ -458,8 +517,8 @@ Deep Hedging uses `tensorflow-probability` which does _not_ provide a robust dep
 In your local conda environment use the following (latest version requirements can be found in `requirements.txt`):
         
         conda install "cdxbasics>=0.2.9" -c hansbuehler
-        conda install -c conda-forge tensorflow
-        conda install -c conda-forge tensorflow-probability
+        conda install -c conda-forge tensorflow>=2.10
+        conda install -c conda-forge tensorflow-probability==0.14
 
 At the time of writing, this gives you TensowFlow 2.10 and the correct `tensorflow-probability` version 0.14.
 Then check that the following works:
@@ -472,17 +531,17 @@ See also below for comments on GPU use.
 
 ### AWS SageMaker
 
-(1/1/2023) Finally AWS SageMaker supports TensorFlow 2.7 with and without GPU with the conda environment `conda_tensorflow2_p38`. It is still pretty buggy (e.g. conda is inconsistent out of the box) but seems to work. AWS tends to change their available conda packages, so check which one is available when you are trying this.
+(29/1/2023) Finally AWS SageMaker supports TensorFlow 2.10 with and without GPU with the conda environment `conda_tensorflow2_p310`. It is still pretty buggy (e.g. conda is inconsistent out of the box) but seems to work. AWS tends to change their available conda packages, so check which one is available when you are trying this.
 
 In order to run Deep Hedging, launch a decent AWS SageMaker instance such as `ml.c5.2xlarge`.
 Open a terminal and write:
         
         bash
-        conda activate tensorflow2_p38
+        conda activate tensorflow2_p310
         python -m pip install --upgrade pip
         pip install cdxbasics tensorflow_probability==0.14  
 
-The reason we are using `pip` here an not `conda` is that `conda_tensorflow2_p38` is inconsistent, so using `conda` is pretty unreliable and very slow. Either way, above should give you an environemnt with Tensorflow 2.7, including with GPU support if your selected instance has GPUs. (Note that GPUs do not seem to bring benefits with the current code base.) 
+The reason we are using `pip` here an not `conda` is that `conda_tensorflow2_p310` is inconsistent, so using `conda` is pretty unreliable and very slow. Either way, above should give you an environemnt with Tensorflow 2.10, including with GPU support if your selected instance has GPUs. (Note that GPUs do not seem to bring benefits with the current code base.) 
 
 If you have cloned the [Deep Hedging git directory](https://github.com/hansbuehler/deephedging) via SageMaker, then the `deephedging` directory is <i>not</i> in your include path, even if the directory shows up in your jupyter hub file list. That is why I've added some magic code on top of the various noteooks:
 
