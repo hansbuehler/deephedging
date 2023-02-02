@@ -337,18 +337,29 @@ class VanillaDeepHedgingGym(tf.keras.Model):
     def create_cache( self ):
         """
         Create a dictionary which allows reconstructing the current model.
+        The content of the dictionary are IDs to validate that we are reconstructing the same type of gym,
+        weights of the gym and the optimizer, and the last learning rate of the optimizer.
+        
+        Note: reconstruction of an optimizer state is not natively supported in TensorFlow. Below might not work perfectly.
         """
         assert not self.agent is None, "build() not called yet"
-        opt_config  = tf.keras.optimizers.serialize( self.optimizer ) if not self.optimizer is None else None
-        opt_weights = self.optimizer.get_weights() if not getattr(self.optimizer,"get_weights",None) is None else None        
+        opt_weights = self.optimizer.get_weights() if not getattr(self.optimizer,"get_weights",None) is None else None
+        opt_config  = tf.keras.optimizers.serialize( self.optimizer )['config'] if not self.optimizer is None else None
+        
         if not opt_config is None and opt_weights is None:
             # tensorflow 2.11 abandons 'get_weights'
             variables   = self.optimizer.variables()        
             opt_weights = [ np.array( v ) for v in variables ]
         
+        # we compute a config ID for all parameters but the learning rate
+        # That should work for most optimizers, but future optimizers may
+        # rquire copying furhter variables
+        id_config   = { k: opt_config[k] for k in opt_config if k != 'learning_rate' } if not opt_config is None else None
+        opt_uid     = uniqueHash( id_config ) if not id_config is None else ""
+        
         return dict( gym_uid       = self.unique_id,
                      gym_weights   = self.get_weights(),
-                     opt_uid       = uniqueHash( opt_config ) if not opt_config is None else "",
+                     opt_uid       = opt_uid,
                      opt_config    = opt_config,
                      opt_weights   = self.optimizer.get_weights()
                    )
@@ -356,9 +367,10 @@ class VanillaDeepHedgingGym(tf.keras.Model):
     def restore_from_cache( self, cache ) -> bool:
         """
         Restore 'self' from cache.
-        Note that we have to call() this object before being able to use this function
-        
+        Note that we have to call() this object before being able to use this function        
         This function returns False if the cached weights do not match the current architecture.
+        
+        Note: reconstruction of an optimizer state is not natively supported in TensorFlow. Below might not work perfectly.
         """        
         assert not self.agent is None, "build() not called yet"
         gym_uid     = cache['gym_uid']
@@ -367,8 +379,9 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         opt_config  = cache['opt_config']
         opt_weights = cache['opt_weights']
         
-        self_opt_config = tf.keras.optimizers.serialize( self.optimizer ) if not self.optimizer is None else None
-        self_opt_uid    = uniqueHash( self_opt_config ) if not self_opt_config is None else ""
+        self_opt_config = tf.keras.optimizers.serialize( self.optimizer )['config'] if not self.optimizer is None else None
+        self_id_config  = { k: opt_config[k] for k in opt_config if k != 'learning_rate' } if not self_opt_config is None else None
+        self_opt_uid    = uniqueHash( self_id_config ) if not self_opt_config is None else ""
         
         # check that the objects correspond to the correct configs
         if gym_uid != self.unique_id:
@@ -391,6 +404,10 @@ class VanillaDeepHedgingGym(tf.keras.Model):
     
         if self.optimizer is None:
             return True    
+        # set learning rate to last recoreded value
+        if 'learning_rate' in opt_config:
+            self.optimizer.learning_rate = opt_config['learning_rate']
+        # restore weights
         try:
             self.optimizer.set_weights( opt_weights )
         except ValueError as v:
@@ -398,5 +415,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             isTF211 = "" if not isTF211 else "Code is running TensorFlow 2.11 or higher for which tf.keras.optimizers.Optimizer.get_weights() was retired. Current code is experimental. Review create_cache/restore_from_cache.\n"
             _log.warn( "Cache restoration error: cached optimizer weights were not compatible with existing optimizer.\n%s%s", v)
             return False
+
+        
         return True
 
