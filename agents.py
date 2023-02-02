@@ -61,6 +61,7 @@ class SimpleDenseAgent(tf.keras.layers.Layer):
         init_delta              = config.init_delta("active", True, bool, "Whether or not to train in addition a delta layer for the first step")
         self.nContStates        = config("recurrence",   0, Int>=0, "Number of real recurrent states. Set to zero to turn off recurrence")
         self.nDigitalStates     = config("recurrence01", 0, Int>=0, "Number of digital recurrent states. Set to zero to turn off recurrence")
+        self.like_gru           = config("recurrence_gru", False, bool, "If True, adds a GRU-like update state mechanism")
         self.nInst              = int(nInst)
         self.nStates            = self.nContStates + self.nDigitalStates
         
@@ -76,7 +77,14 @@ class SimpleDenseAgent(tf.keras.layers.Layer):
         is_recurrent            = self.nStates > 0
         self.state_feature_name = self.State_Feature_Name if is_recurrent else None  
         features                = sorted( features + [ self.State_Feature_Name ] if is_recurrent else features ) 
-        nOutput                 = self.nInst+self.nStates if is_recurrent else self.nInst
+        
+        nOutput                 = self.nInst
+        if is_recurrent:
+            if not self.like_gru:
+                nOutput         = self.nInst+self.nStates
+            else:
+                nOutput         = self.nInst+2*self.nStates
+                
         self._layer             = DenseLayer( features=features, nOutput=nOutput, config=config.network, name=name+"_layer", dtype=dtype )
         self._init_state        = DenseLayer( features=sorted(state_features), nOutput=self.nStates, config=config.state.network, defaults=default_state, name=name+"_init_state", dtype=dtype ) if is_recurrent else None
         self._init_delta        = DenseLayer( features=sorted(init_delta_features), nOutput=self.nInst, config=config.init_delta.network, defaults=default_idelta, name=name+"_init_delta", dtype=dtype ) if init_delta else None
@@ -108,6 +116,8 @@ class SimpleDenseAgent(tf.keras.layers.Layer):
         all_features = dict(all_features)
         state        = all_features[self.State_Feature_Name]
         state        = tf.math.tanh(state, name="tanh_state")
+        
+        # handle digital states
         if self.nDigitalStates > 0:
             cont_state = state[:,:self.nContStates] if self.nContStates > 0 else None
             digi_state = state[:,self.nContStates:]
@@ -116,8 +126,20 @@ class SimpleDenseAgent(tf.keras.layers.Layer):
         all_features[self.State_Feature_Name] = state
 
         # execute
-        action_state = self._layer(all_features, training=training)
-        return action_state[:,:self.nInst], action_state[:,self.nInst:]
+        output      = self._layer(all_features, training=training)
+        out_action  = output[:,:self.nInst]
+        out_state   = output[:,self.nInst:]
+        
+        # GRU mode
+        # We are not quite applying GRU, but something similar
+        if self.like_gru:
+            assert out_state.shape[1] == self.nStates*2, "Internal error: expected %ld output size, found %ld" % ( self.nStates*2, out_state.shape[1] )
+            control   = out_state[:,self.nStates:]
+            out_state = out_state[:,:self.nStates]
+            control   = tf.math.sigmoid(control)
+            out_state = state * control + (1.-control) * out_state
+            
+        return out_action, out_state
 
     @property
     def is_recurrent(self):
