@@ -159,6 +159,8 @@ class Monitor(tf.keras.callbacks.Callback):
         self.cache_freq       = config.caching("epoch_freq", 10, Int>0, "How often to cache results, in number of epochs")
         cache_file_name       = config.caching("debug_file_name", None, help="Allows overwriting the filename for debugging an explicit cached state")
         self.plotter          = Plotter(training_info.output_level == 'all', config.visual) if training_info.output_level != 'quiet' else None
+        self.no_graphics      = training_info.output_level != 'all'
+        if self.plotter is None: config.visual.mark_done()
         config.done()
                 
         self.progress_data    = TrainingProgressData(    
@@ -203,8 +205,8 @@ class Monitor(tf.keras.callbacks.Callback):
         if self.progress_data.epoch+1 >= training_info.epochs:
             if not self.plotter is None: print( \
                    "Nothing to do: cached model loaded from %s was trained for %ld epochs; you have asked to train for %ld epochs. "\
-                   "If you want to force training: raise number of epochs or turn off caching.\n\nPlotting results for the trained model.\n" % \
-                   ( self.full_cache_file, self.progress_data.epoch+1, training_info.epochs ) )
+                   "If you want to force training: raise number of epochs or turn off caching.%s\n" % \
+                   ( self.full_cache_file, self.progress_data.epoch+1, training_info.epochs, "\n\nPlotting results for the trained model." if not self.no_graphics else "" ) )
         self.time0 = time.time()
 
     @property
