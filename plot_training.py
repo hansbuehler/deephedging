@@ -10,10 +10,11 @@ June 30, 2022
 
 import numpy as np
 import psutil as psutil
+from datetime import datetime, timedelta
 from cdxbasics.prettydict import PrettyDict as pdct
 from cdxbasics.dynaplot import colors_tableau, figure
 from cdxbasics.config import Config
-from .base import Logger, fmt_seconds, mean, mean_bins, mean_cum_bins, perct_exp, Int, Float, fmt_big_number
+from .base import Logger, fmt_seconds, mean, mean_bins, mean_cum_bins, perct_exp, Int, Float, fmt_big_number, fmt_now, fmt_datetime
 
 _log = Logger(__file__)
 
@@ -29,6 +30,16 @@ class Plot_Loss_By_Epoch(object): # NOQA
     """
     
     def __init__(self, *, fig, title, epochs, err_dev, lookback_window, show_epochs ): # NOQA
+        """
+        Parameters
+        ----------
+            fig 
+            title 
+            epochs  : total epochs
+            err_dev : error bar
+            loookback_window : look back for computing y axis
+            show_epochs : how many epochs to show, at most
+        """
         
         self.lookback_window  = lookback_window
         self.show_epochs      = show_epochs
@@ -48,7 +59,6 @@ class Plot_Loss_By_Epoch(object): # NOQA
     def update(self, *, epoch, losses : dict, loss_errs : dict, best_epoch : int, best_loss : float ): # NOQA
             
         show_epoch0 = max( 0, epoch-self.show_epochs )
-        show_epoch0 = min( best_epoch, show_epoch0 )
         first       = self.line_best is None        
         x           = np.linspace(show_epoch0+1,epoch+1,epoch-show_epoch0+1,endpoint=True,dtype=np.int32 )
         min_        = None
@@ -82,13 +92,13 @@ class Plot_Loss_By_Epoch(object): # NOQA
                     
         # indicator of best
         if self.line_best is None:
-            self.line_best = self.ax.plot( [best_epoch+1], [best_loss], "*", label="best", color="black" )[0]
+            self.line_best = self.ax.plot( [max(best_epoch+1,x[0])], [best_loss], "*", label="best", color="black" )[0]
         else:
-            self.line_best.set_xdata( [best_epoch+1] )
+            self.line_best.set_xdata( [max(best_epoch+1,x[0])] )
             self.line_best.set_ydata( [best_loss] )
             
         # adjust graph
-        self.ax.set_xlim(show_epoch0+1,show_epoch0+1+self.show_epochs)
+        self.ax.set_xlim(x[0] if x[0]<x[-1] else x[-1]-1,x[-1])
         dx   = max( max_-min_, 0.0001)
         max_ += dx/20.
         min_ -= dx/20.
@@ -116,8 +126,6 @@ class Plot_Utility_By_Epoch(object): # NOQA
     def update(self, *, epoch, best_epoch, training_util, training_util_err, val_util ):# NOQA
     
         show_epoch0 = max( 0, epoch-self.show_epochs )
-        show_epoch0 = min( best_epoch, show_epoch0 )
-       
         x                  = np.linspace(show_epoch0+1,epoch+1,epoch-show_epoch0+1,endpoint=True,dtype=np.int32 )
         best_training      = training_util[best_epoch]
         training_util      = np.array( training_util  )[show_epoch0:epoch+1]
@@ -128,7 +136,7 @@ class Plot_Utility_By_Epoch(object): # NOQA
             self.lines = pdct()
             self.lines.training_util  = self.ax.plot( x, training_util,  "-", label="%s, training" % self.label, color="red" )[0]
             self.lines.val_util       = self.ax.plot( x, val_util,   ":",     label="%s, val" % self.label, color="red" )[0]
-            self.lines.best           = self.ax.plot( [best_epoch+1], [best_training], "*", label="best training", color="black" )[0]
+            self.lines.best           = self.ax.plot( [max(best_epoch+1,x[0])], [best_training], "*", label="best training", color="black" )[0]
             self.ax.legend()
             
         else:
@@ -138,21 +146,21 @@ class Plot_Utility_By_Epoch(object): # NOQA
                 if line == 'best':
                     pass
                 self.lines[line].set_xdata(x)
-            self.lines.best.set_xdata( [best_epoch+1] )
+            self.lines.best.set_xdata( [max(best_epoch+1,x[0])] )
             self.lines.best.set_ydata( [best_training] )
 
         for k in self.fills:
             self.fills[k].remove()
         self.fills.training_util  = self.ax.fill_between( x, training_util-training_util_err*self.err_dev, training_util+training_util_err*self.err_dev, color="red", alpha=0.2 )
 
-        # y min/max            
+        # xy min/max            
+        self.ax.set_xlim(x[0] if x[0]<x[-1] else x[-1]-1,x[-1])
         min_ = np.min(training_util[-self.lookback_window:]-training_util_err[-self.lookback_window:]*self.err_dev)
         max_ = np.max(training_util[-self.lookback_window:]+training_util_err[-self.lookback_window:]*self.err_dev)
         dx   = max( max_-min_, 0.0001)
         max_ += dx/20.
         min_ -= dx/20.
         self.ax.set_ylim(min_,max_)
-        self.ax.set_xlim(show_epoch0+1,show_epoch0+1+self.show_epochs)
 
 class Plot_Memory_By_Epoch(object): # NOQA
     """
@@ -447,8 +455,10 @@ class Plot_Activity_By_Step(object): # NOQA
 
 class Plotter(object):
     """
+    Object to print progress information during training.
+    
     Contains plotting logic using 'dynaplot'.
-    Add new plots here
+    Add new plots here.
     """
     
     def __init__(self, plot_graphs : bool, config : Config):
@@ -595,13 +605,15 @@ class Plotter(object):
         # comment on timing:
         total_time_passed = sum( progress_data.times )
         time_per_epoch    = total_time_passed / float(progress_data.epoch+1)
-        time_left         = time_per_epoch * float(training_info.epochs-(progress_data.epoch+1))
+        time_left         = time_per_epoch * max(0.,float(training_info.epochs-(progress_data.epoch+1)))
+        when_done         = datetime.now() + timedelta( seconds = time_left )
+        str_when_done     = ( ", estimated end time: %s" % fmt_datetime(when_done) ) if time_left > 0 else ""
         str_num_weights   = fmt_big_number( training_info.num_weights )
         
         str_sys   = "memory used: rss %gM, vms %gM" % ( progress_data.process.memory_rss[-1], progress_data.process.memory_vms[-1] )
-        str_cache = "" if last_cached_epoch == -1 else ("; last cached %ld" % (last_cached_epoch+1))
+        str_cache = "" if last_cached_epoch == -1 else (", last cached %ld" % (last_cached_epoch+1))
         str_intro = "Training %ld/%ld epochs; %s weights; %ld samples; %ld validation samples batch size %ld" % ( progress_data.epoch+1, training_info.epochs, str_num_weights, world.nSamples, val_world.nSamples, training_info.batch_size if not training_info.batch_size is None else 32)
-        str_perf  = "initial loss %g (%g), training %g (%g), best %g (%g), batch %g, val %g (%g). Best epoch %ld%s." % ( \
+        str_perf  = "initial loss %g (%g), training %g (%g), best %g (%g), batch %g, val %g (%g); best epoch %ld%s" % ( \
                                         progress_data.init_loss, progress_data.init_loss_err, \
                                         training_loss_mean, training_loss_err, \
                                         progress_data.best_loss, progress_data.best_loss_err, \
@@ -609,7 +621,7 @@ class Plotter(object):
                                         val_loss_mean, val_loss_err, \
                                         progress_data.best_epoch+1,\
                                         str_cache)
-        str_time  = "time elapsed %s; time per epoch %s; estimated time remaining %s" % ( fmt_seconds(total_time_passed), fmt_seconds(time_per_epoch), fmt_seconds(time_left) )        
+        str_time  = "time elapsed %s; time per epoch %s; estimated time remaining %s | current time: %s%s" % ( fmt_seconds(total_time_passed), fmt_seconds(time_per_epoch), fmt_seconds(time_left), fmt_now(), str_when_done )        
         print("\r\33[2K%s | %s | %s | %s                        " % ( str_intro, str_perf, str_sys, str_time ), end='')
 
     

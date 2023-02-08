@@ -6,9 +6,10 @@ Training environment for deep hedging.
 June 30, 2022
 @author: hansbuehler
 """
-from .base import Logger, Config, tf, tfp, dh_dtype, pdct, tf_back_flatten, tf_make_dim, Int, Float, tfCast, create_optimizer
+from .base import Logger, Config, tf, dh_dtype, pdct, tf_back_flatten, tf_make_dim, Int, Float, tfCast, create_optimizer
 from .agents import AgentFactory
 from .objectives import MonetaryUtility
+from .softclip import DHSoftClip
 from collections.abc import Mapping
 from cdxbasics.util import uniqueHash
 import numpy as np
@@ -46,13 +47,10 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         """
         tf.keras.Model.__init__(self, name=name, dtype=dtype )
         seed                       = config.tensorflow("seed", 423423423, int, "Set tensor random seed. Leave to None if not desired.")
-        self.hard_clip             = config.environment('hard_clip', False, bool, "Use min/max instread of soft clip for limiting actions by their bounds")
-        self.outer_clip            = config.environment('outer_clip', True, bool, "Apply a hard clip 'outer_clip_cut_off' times the boundaries")
-        self.outer_clip_cut_off    = config.environment('outer_clip_cut_off', 10., Float>=1., "Multiplier on bounds for outer_clip")
-        hinge_softness             = config.environment('softclip_hinge_softness', 1., Float>0., "Specifies softness of bounding actions between lbnd_a and ubnd_a")
-        self.softclip              = tfp.bijectors.SoftClip( low=0., high=1., hinge_softness=hinge_softness, name='soft_clip' )
+        self.softclip              = DHSoftClip( config.environment )
         self.config_agent          = config.agent.detach()
         self.config_objective      = config.objective.detach()
+        self.user_version          = config("user_version", None, help="An arbitrary string which can be used to identify a particular gym. Changing this value will generate a new cache key")
         self.agent                 = None
         self.utility               = None
         self.utility0              = None
@@ -182,7 +180,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             action, state_ =  self.agent( live_features, training=training )
             _log.verify( action.shape.as_list() == [nBatch, nInst], "Error: action return by agent: expected shape %s, found %s", [nBatch, nInst], action.shape.as_list() )
             action         += idelta
-            action         =  self._clip_actions(action, lbnd_a[:,t,:], ubnd_a[:,t,:] )
+            action         =  self.softclip(action, lbnd_a[:,t,:], ubnd_a[:,t,:] )
             state          =  state_ if self.agent.is_recurrent else state
             delta          += action
 
@@ -227,37 +225,6 @@ class VanillaDeepHedgingGym(tf.keras.Model):
     # -------------------
     # internal
     # -------------------
-
-    def _clip_actions( self, actions, lbnd_a, ubnd_a ):
-        """ Clip the action within lbnd_a, ubnd_a """
-        
-        with tf.control_dependencies( [ tf.debugging.assert_greater_equal( ubnd_a, lbnd_a, message="Upper bound for actions must be bigger than lower bound" ),
-                                        tf.debugging.assert_greater_equal( ubnd_a, 0., message="Upper bound for actions must not be negative" ),
-                                        tf.debugging.assert_less_equal( lbnd_a, 0., message="Lower bound for actions must not be positive" ) ] ):
-        
-            if self.hard_clip:
-                # hard clip
-                # this is recommended for debugging only.
-                # soft clipping should lead to smoother gradients
-                actions = tf.minimum( actions, ubnd_a, name="hard_clip_min" )
-                actions = tf.maximum( actions, lbnd_a, name="hard_clip_max" )
-                return actions            
-
-            if self.outer_clip:
-                # to avoid very numerical errors due to very
-                # large pre-clip actions, we cap pre-clip values
-                # hard at 10 times the bounds.
-                # This can happen if an action has no effect
-                # on the gains process (e.g. hedge == 0)
-                actions = tf.minimum( actions, ubnd_a*self.outer_clip_cut_off, name="outer_clip_min" )
-                actions = tf.maximum( actions, lbnd_a*self.outer_clip_cut_off, name="outer_clip_max" )
-
-            dbnd = ubnd_a - lbnd_a
-            rel  = ( actions - lbnd_a ) / dbnd
-            rel  = self.softclip( rel )
-            act  = tf.where( dbnd > 0., rel *  dbnd + lbnd_a, 0., name="soft_clipped_act" )
-            act  = tf.debugging.check_numerics(act, "Numerical error clipping action in %s. Turn on tf.enable_check_numerics to find the root cause. Note that they are disabled in trainer.py" % __file__ )
-            return act
 
     @staticmethod
     def _features( data : dict, nSteps : int = None ) -> (dict, dict):

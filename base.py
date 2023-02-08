@@ -15,7 +15,7 @@ import numpy as np
 import tensorflow as tf
 import math as math
 import inspect as inspect
-import tensorflow_probability as tfp # NOQA
+import datetime as datetime
 _log = Logger(__file__)
 
 # -------------------------------------------------
@@ -398,6 +398,19 @@ def fmt_big_number( number : int ) -> str:
         number = float(number) / 1000.
         return "%gK" % number
     return str(number)
+
+def fmt_datetime(dt : datetime.datetime) -> str:
+    """ Returns string for 'dt' """
+    if isinstance(dt, datetime.datetime):
+        return "%04ld-%02ld-%02ld %02ld:%02ld:%02ld" % ( dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second )
+    if isinstance(dt, datetime.date):
+        return "%04ld-%02ld-%02ld" % ( dt.year, dt.month, dt.day )
+    assert isinstance(dt, datetime.time), "'dt' must be datetime, date, or time. Found %s" % type(dt)
+    return "%02ld:%02ld:%02ld" % ( dt.hour, dt.minute, dt.second )
+
+def fmt_now() -> str:
+    """ Returns string for 'now' """
+    return fmt_datetime(datetime.datetime.now())
 
 # -------------------------------------------------
 # Complex utilities
