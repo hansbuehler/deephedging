@@ -11,9 +11,9 @@ $$
  \ \right] \ .
 $$ c.f. the description in the [main document](README.md).
 
-The _agent_ here is the functional $a$ which maps the current **state** $s_t$ to an **action**, which in this case is simply how many units of the $n$ hedging instruments to buy in $t$. In practise, $s_t$ is a number of features available at time $t$.  
+The _agent_ here is the functional $a$ which maps the current **state** $s_t$ to an **action**, which in this case is simply how many units of the $n$ hedging instruments to buy in $t$. In practise, $s_t$ represents the features available at time $t$.  
 
-The agent provided in ``agent.py`` provides both a "recurrent" and a non-recurrent version, but it should be noted that since the state at time $s_t$ contains the previous steps action $a_{t-1}$ as well as the aggregate position $\delta_{t-1}$ strictly speaking even a non-recurrent agent is actually recurrent.
+The agent provided in ``agent.py`` provides both a "recurrent" and a non-recurrent version, but it should be noted that since the state at time $s_t$ contains the previous steps action $a_{t-1}$ as well as the aggregate position $\delta_{t-1}$ strictly speaking even a "non-recurrent" agent is actually recurrent.
 
 Define the function
 $$
@@ -35,7 +35,8 @@ $$ where $F$ is a neural network, and where $z_t$ is an "update gate vector". Th
 In quant finance such states are often written in diffusion notation with $z_t \equiv \kappa_t\, dt$ where $\kappa_t\geq 0$ is a mean-reversion speed. In this case the $dt\downarrow 0$ limit becomes
 $$
     h_t = e^{-\int_0^t\! \kappa_s\,ds} h_0 + \int_0^t\!\! \kappa_u e^{-\int_u^t\! \kappa_s\,ds} F(s_u,h_{u-})\,du \ .
-$$
+$$ The appendix provides the derivation of this formula from its associated SDE.
+
 * **Past Representation States:** information gathered at a fixed points in time, for example the spot level at a reset date. Such data are not accessible before their observation time.
 The prototype equation for such a process is
 $$
