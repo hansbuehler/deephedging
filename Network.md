@@ -15,6 +15,13 @@ The _agent_ here is the functional $a$ which maps the current **state** $s_t$ to
 
 The agent provided in ``agent.py`` provides both a "recurrent" and a non-recurrent version, but it should be noted that since the state at time $s_t$ contains the previous steps action $a_{t-1}$ as well as the aggregate position $\delta_{t-1}$ strictly speaking even a non-recurrent agent is actually recurrent.
 
+Define the function
+$$
+    \mathbf{1}(x) := \left\{ \begin{array}{ll} 1 & \mathrm{if}\ \mathrm{tanh}(x) > 0.\\
+                                    0. & \mathrm{else} 
+                                    \end{array}\right.
+$$ with values in $\{0,1\}$.
+
 
 * **Classic** (recurrent) **States** are given by
 $$
@@ -40,79 +47,10 @@ $$
  h_t = h_{t-1} (1 - z_t ) + z_t \mathbf{1}\!\Big(  F(s_t, h_{t-1}) \Big)  \ \ \ \ z_t \in \{0,1\}
  $$  where we need to make sure that $h_{-1}\in\{0,1\}$, too. 
  
-## Network architecture
 
-The agent currently supports the following generalized GRU recurrent network:
+## Appendix: Mean Reversion Math
 
-#### Inputs
-
-* $h_{t-1}$ is the previous state vector. The initial vector $h_{-1}$ is trained in a separate network (or as simple weights, if the initial state is empty).
-
-* $s_t$ is the current observable state vector. The agent can be configured to decide which of the available features are being used. Among those are the previous action $a_{t-1}$ and the current aggregate position $\delta_{t-1} := \sum_{s\leq t} a_s$. The latter only makes sense for spot when the ``world.py`` world generator is used, as the tradable options change across time steps.
-
-#### Network
-
-Define the function
-$$
-    \mathbf{1}(x) := \left\{ \begin{array}{ll} 1 & \mathrm{if}\ \mathrm{tanh}(x) > 0.\\
-                                    0. & \mathrm{else} 
-                                    \end{array}\right.
-$$
-with values in $\{0,1\}$.
-
-Let $s_t$ be the current state and $h_{t-1}$ the previous hidden state.
-We first split the hidden state into $n_c$ continuous variables with values in $(0,1)$ and $n_d$ digital variables with values in $\{0,1\}$. The latter allows to make explicit decisions to take on values from the environment.
-By construction, $h_{t-1}\in\R^{n_c+n_d}$.
-$$
-    h^c_{t-1} = \mathrm{tanh}\!\left( \begin{array}{c}
-    h^1_{t-1} \\
-    \ddots \\
-    h^{n_c}_{t-1}
-   \end{array} \right) 
-   \ \ \ \ 
-    h^d_{t-1} = \mathbf{1}\!\!\left( \begin{array}{c}
-    h^{n_c+1}_{t-1} \\
-    \ddots \\
-    h^{n_c+n_d}_{t-1} 
-   \end{array} \right) 
-$$
-Assume $A$ is a neural network with weights $\theta$. Let
-$$
-   \left( \begin{array}{c}
-    a_t \\
-    \hat h_t \\
-    \hat o_t \\
-    \hat c_t \\
-    \hat d_t \\
-   \end{array} \right) := A_\theta\left( \begin{array}{c}  
-   s_t \\  
-   h^c_{t-1} \\
-   h^d_{t-1} 
-   \end{array} \right)    
-$$
-Here
-* $a_t\in\R^n$ is the action for this time step.
-* $\hat h_t\in\R^{n_c+n_d}$ is the candidate hidden state.
-* $\hat u_t\in\R^{n_c+n_d}$ is a candidate update state.
-* $c_t := \mathrm{sigmoid}(\hat c_t)\in(0,1)^{n_c+n_d}$ is the "continuous gate vector". 
-* $d_t := \mathbf{1}(\hat c_t)\in\{0,1\}^{n_c+n_d}$ is the "digital gate vector".
-
-We then update the hidden state as follows:
-$$
-h_t = \hat u_t d_t + (1-d_t) \Big( \hat h_t c_t + (1-c_t) h_{t-1} \Big) 
-$$
-The role of the continuous state vector $c_t$ is to update $h$ in what is essentially a form of exponential moving average. The role of the digital state vector $d_t$ is to allow the system to overwrite the hidden state with some immediate update.
-
-
-
-
-
-The agent is configured using a `cdxbasics.config.Config` object. The main parameters of this obk
-
-
-## Mean Reversion Math
-
-### Constant mean reversion
+#### Constant mean reversion
 Consider
 $$
     dx_t = \kappa (y_t - x_t)\,dt
@@ -127,7 +65,7 @@ $$ and therefore
 $$
     x_t = e^{-\kappa t} x_0 + \kappa \int_0^t e^{-\kappa(t-s)} y_s\,ds
 $$
-### Mean reversion as function of time
+#### Mean reversion as function of time
 
 Let
 $$
