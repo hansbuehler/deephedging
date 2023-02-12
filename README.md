@@ -35,14 +35,14 @@ You can now write
 
 * **TensorBoard** (Jan 29th, 2023): added support for TensorBoard. See `notebooks/trainer-board.ipynb`. However, I did not manage to make it run on SageMaker, neither did I manage to run the profiler on my own machine.
 
-* **Visualization Update** (Jan 29th, 2023): improved visualization during training by adding (a) a view on spot delta and actions, and by adding several views which include the stddev from the mean per plotted bin.  Also added better information on network setup and features used.
+* **Visualization Update** (Jan 29th, 2023): improved visualization during training by adding a view on spot delta and actions, and by adding several views which include the stddev from the mean per plotted bin.  Also added better information on network setup and features used.
 
 ----
 
 * **Enabled caching** (Jan 8th, 2023): by default, the code now caches progress every 10 epochs. Training will be picked up at the last caching point when the same code is re-run. If training completed, running the same code again will not trigger new training; you can set `config.train.caching.mode = 'update'`.
 
-* **Recurrent Agents** (Jan 8th, 2023): the trading agent can now pass on a state from one step to another, allowing it full recurrence. Enable it with `config.gym.agent.recurrence =  r`, where `r` denotes the number of real numbers the agent may pass from one step to the next. 
-As of Jan 29th you can also specify recurrent nodes which have 0 or 1 values using `config.gym.agent.recurrence01 = r`.
+* **Recurrent Agents** (Jan 8th, 2023): 
+ the trading agent can now pass on a state from one step to another, allowing full recurrence. 
 
 
 _Beta version. Please report any issues. Please see installation support below._
