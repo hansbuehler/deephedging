@@ -53,7 +53,7 @@ _Beta version. Please report any issues. Please see installation support below._
 The Deep Hedging problem for a horizon $T$ hedged over $M$ time steps with $N$ hedging instruments is finding an optimal *action* function $a$ as a function of feature states $s_0,\ldots,s_{T-1}$ which solves
 
 $$
- \sup_a:\ \mathrm{E}\left[\ 
+ \sup_a:\ \mathrm{U}\left[\ 
     Z_T + \sum_{t=0}^{T-1} a(s_t) \cdot DH_t + \gamma_t \cdot | a(s_t) H_t |
  \ \right] \ .
 $$
@@ -68,8 +68,7 @@ Here
     An alternative would be to use $DH^{i}_t := V_T - V_t$, e.g. using the market mid-price at time $T$ for the return calculation whenever $\tau> T$.
 
 * $U$ is a _monetary utility_ which can be thought of as a risk-adjusted return.
-A classic example is the entropy, given by $U(X) := - \frac1\lambda \log\ \mathrm{E}\left[\ \exp(-\lambda X) \right] $. The code base supports a number of utility-based monetary utilities which can be found in the
-file `objectives.py`.
+A classic example is the entropy, given by $U(X) := - \frac1\lambda \log\ \mathrm{E}\left[\ \exp(-\lambda X) \right] $. The code base supports a number of utility-based monetary utilities which can be found in `objectives.py`.
 
 To test the code run `notebooks/trainer.ipynb`.
 
