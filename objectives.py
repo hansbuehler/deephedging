@@ -261,8 +261,13 @@ def utility( utility : str, lmbda : float, X : tf.Tensor, y : tf.Tensor = 0. ) -
         #
         # Conversion from percentile p (e.g. 95%):
         #   1+lambda = 1/(1-p) 
-        # and
+        # =>
         #   lambda = p / (1-p)
+        #
+        # Conversion from lambda to percentile
+        #   1-p = 1/(1+\lambda)
+        # =>
+        #   p = 1 - 1/(1+\lambda) = \lambda/(1+\lambda)
         #
         # In other words, for p=50% use 1. (as in https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3120710)
         #                 for p=95% use 19.
