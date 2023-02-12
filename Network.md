@@ -45,10 +45,10 @@ $$
 
 where $F$ is a neural network, and where $z_t$ is an "update gate vector". This is also known as a "gated recurrent unit" and is similar to an LSTM node. 
 
-In quant finance such states are often written in diffusion notation with $z_t \equiv \kappa_t\, dt$ where $\kappa_t\geq 0$ is a mean-reversion speed. In this case the $dt\downarrow 0$ limit becomes
+In quant finance such states are often written in diffusion notation with $z_t \equiv \kappa_t dt$ where $\kappa_t\geq 0$ is a mean-reversion speed. In this case the $dt\downarrow 0$ limit becomes
 
 $$
-    h_t = e^{-\int_0^t\! \kappa_s\,ds} h_0 + \int_0^t \kappa_u e^{-\int_u^t \kappa_s\,ds} F(s_u,h_{u-})\,du \ .
+    h_t = e^{-\int_0^t \kappa_sds} h_0 + \int_0^t \kappa_u e^{-\int_u^t \kappa_sds} F(s_u,h_{u-})du \ .
 $$
 
 The appendix provides the derivation of this formula from its associated SDE.
@@ -188,7 +188,7 @@ Just like the initial hidden states, this is either a vetor of size $n$ to learn
 Consider
 
 $$
-    dx_t = \kappa (y_t - x_t)\,dt
+    dx_t = \kappa (y_t - x_t)dt
     \ \ \ \ \Leftrightarrow \ \ \ \
     x_{t+dt} = \kappa dt\ y_t + (1 - \kappa dt )\ x_t
 $$
@@ -197,14 +197,14 @@ Then
 
 $$
     d\left( e^{\kappa t} x_t \right)
-        = \kappa e^{\kappa t} x_t\,dt +
-        \kappa e^{\kappa t}(y_t - x_t)\,dt = \kappa e^{\kappa t}y_t\,dt
+        = \kappa e^{\kappa t} x_tdt +
+        \kappa e^{\kappa t}(y_t - x_t)dt = \kappa e^{\kappa t}y_tdt
 $$
 
 and therefore
 
 $$
-    x_t = e^{-\kappa t} x_0 + \kappa \int_0^t e^{-\kappa(t-s)} y_s\,ds
+    x_t = e^{-\kappa t} x_0 + \kappa \int_0^t e^{-\kappa(t-s)} y_sds
 $$
 
 ### Mean reversion as function of time
@@ -212,20 +212,20 @@ $$
 Let
 
 $$
-dx_t = \kappa_t (y_t - x_t)\,dt
+dx_t = \kappa_t (y_t - x_t)dt
 $$
 
-Set $K_t:=\exp(\int_0^t \kappa_s\,ds)$. Then
+Set $K_t:=\exp(\int_0^t \kappa_sds)$. Then
 
 $$
     d\left( K_t x_t \right)
-        = \kappa_t K_t x_t\,dt +
-        \kappa_t K_t (y_t - x_t)\,dt = \kappa_t K_t y_t\,dt
+        = \kappa_t K_t x_tdt +
+        \kappa_t K_t (y_t - x_t)dt = \kappa_t K_t y_tdt
 $$
 
 and therefore
 
 $$
-    x_t = e^{-\int_0^t k_s\,ds} x_0
-        + \int_0^t \kappa_r\,e^{-\int_r^t\!\kappa_s\,ds } y_s\,ds
+    x_t = e^{-\int_0^t k_sds} x_0
+        + \int_0^t \kappa_re^{-\int_r^t\kappa_sds } y_sds
 $$
