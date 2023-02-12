@@ -104,24 +104,24 @@ In order to run the Deep Hedging, we require:
 To provide your own world with real or simulator data, see `world.py`.
 Here are `world.tf_data` entries used by `gym.call()`:
 
-* `data['market']['payoff'] (:,)`: the payoff $Z_T$ at maturity. Since this is at the time of the expiry of the product, this can be computed off the path until $T$. No derivative pricing model is required.
+* `data['market']['payoff'](:,)`: the payoff $Z_T$ at maturity. Since this is at the time of the expiry of the product, this can be computed off the path until $T$. No derivative pricing model is required.
 
-* `data['martket']['hedges'] (:,M,N)`: returns of the hedges, i.e. the vector $DH_t:=H_{T'} - H_t$ for each time step. That means $H_t$ is the market price at time $t$, and $H_{T'}$ is payoff of the instrument at its expiry. In our examples we expand the timeline such that the expiry of all products is part of the market simulator. 
+* `data['martket']['hedges'](:,M,N)`: returns of the hedges, i.e. the vector $DH_t:=H_{T'} - H_t$ for each time step. That means $H_t$ is the market price at time $t$, and $H_{T'}$ is payoff of the instrument at its expiry. In our examples we expand the timeline such that the expiry of all products is part of the market simulator. 
 
     For example, if $S_t$ is spot, $w_t^{(i)}$ is the option's implied volatility at $t$,  $x$ its time-to-maturity, and $k$ a relative strike, then
 $$
     H_t^{(i,t)} = \mathrm{BSCall}( S_t, w^{(i)}_t; T, kS_t ) \ \ \ \mathrm{and} \ \ \ H_{T'}^{(i,t)} = ( S_{t+x} - kS_t )^+
 $$
 
-* `data['martket']['cost']` (:,M,N)`: cost $\gamma_t$ of trading the hedges in $t$ for proportional cost $c_t(a) = \gamma_t\cdot |a|$.  
+* `data['martket']['cost'](:,M,N)`: cost $\gamma_t$ of trading the hedges in $t$ for proportional cost $c_t(a) = \gamma_t\cdot |a|$.  
 More advanced implementations allow to pass the cost function itself as a tensorflow model.
 In the simple setting an example for the cost of trading a vanilla call could be $\gamma_t = \gamma^D\, \Delta(t,\cdots)+ \gamma^V\,\mathrm{BSVega}(t,\cdots)$.
 
-* `data['martket']['unbd_a'], data['martket']['lnbd_a'] (:,M,N)`: min/max allowed action (change of delta) per time step: $a^\mathrm{min}_t \leq a \leq a^\mathrm{max}_t$, componenwise. Note that the min/max values can be path dependent. In the current implementation they will not depend on dynamic states (such as the current position in hedges), but this can be added if required.
+* `data['martket']['unbd_a'],data['martket']['lnbd_a'](:,M,N)`: min/max allowed action (change of delta) per time step: $a^\mathrm{min}_t \leq a \leq a^\mathrm{max}_t$, componenwise. Note that the min/max values can be path dependent. In the current implementation they will not depend on dynamic states (such as the current position in hedges), but this can be added if required.
 
-* *`data['features']['per_step'] (:,M,N)`: featues for feeding the action network per time step such as current spot, current implied volatilities, time of the day, etc. Those will be added to the state vector $s_t$.
+* *`data['features']['per_step'](:,M,N)`: featues for feeding the action network per time step such as current spot, current implied volatilities, time of the day, etc. Those will be added to the state vector $s_t$.
 
-* `data['features']['per_sample'] (:,M)`: featues for feeding the action network which are constant along the path such as features of the payoff, risk aversion, etc. This is not used in any of the current examples, but it will allow you to train the model for different payoffs at the same time:
+* `data['features']['per_sample'](:,M)`: featues for feeding the action network which are constant along the path such as features of the payoff, risk aversion, etc. This is not used in any of the current examples, but it will allow you to train the model for different payoffs at the same time:
 
     * Define different option payoffs $Z_T$ per path
     * Enure that the characteristic of the option payoff are part of the `per_sample` feature set, and that they are picked up by the respective network agent. See [our paper on learning for different payoffs](https://arxiv.org/abs/2207.07467) as an example.
@@ -132,7 +132,7 @@ An example world generator for simplistic model dynamics is provided, but in pra
 
 See `requirements.txt` for latest version requirements. At the time of writing this markdown these are
 * Use Python 3.7 or later
-* Pip (or conda) install `cdxbasics` version 0.2.9 or higher
+* Pip (or conda) install `cdxbasics` version 0.2.19 or higher
 * Install TensorFlow 2.7 or higher, ideally 2.10 or better.
 * Install tensorflow_probability 0.15 or higher, c.f. https://anaconda.org/conda-forge/tensorflow-probability. 
 
@@ -168,9 +168,9 @@ Open a terminal and write:
         python -m pip install --upgrade pip
         pip install cdxbasics tensorflow_probability==0.14  
 
-The reason we are using `pip` here an not `conda` is that `conda_tensorflow2_p310` is inconsistent, so using `conda` is pretty unreliable and very slow. Either way, above should give you an environemnt with Tensorflow 2.10, including with GPU support if your selected instance has GPUs. (Note that GPUs do not seem to bring benefits with the current code base.) 
+The reason we are using `pip` here an not `conda` is that `conda_tensorflow2_p310` is inconsistent, so using `conda` is pretty unreliable and very slow. Either way, above should give you an environemnt with Tensorflow 2.10, including with GPU support if your selected instance has GPUs.
 
-If you have cloned the [Deep Hedging git directory](https://github.com/hansbuehler/deephedging) via SageMaker, then the `deephedging` directory is <i>not</i> in your include path, even if the directory shows up in your jupyter hub file list. That is why I've added some magic code on top of the various noteooks:
+If you have cloned the [Deep Hedging git directory](https://github.com/hansbuehler/deephedging) via SageMaker, then the `deephedging` directory is <i>not</i> in your include path, even if the directory shows up in your jupyter hub file list. _Don't ask..._ That is why I've added some magic code on top of the various noteooks:
 
     import os
     p = os.getcwd()
@@ -414,9 +414,8 @@ Copied from `notebooks/trainer.ipynb`:
     print("=========================================")
     print( config.usage_report() )
     config.done()
-    ## Config Parameters
 
-Below is an example output  `print( config.usage_report() )`. It provides a summary of all config values available, their defaults, and what values where used.
+Below is an example output  `print( config.usage_report() )`. It provides a summary of all config values available, their defaults, and what values where used. _The actual outpout may differ if you run a later version of the Deep Hedging code base._
 
     =========================================
     Config usage report

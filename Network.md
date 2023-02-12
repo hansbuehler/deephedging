@@ -23,6 +23,13 @@ A number of different functions $u$ are supported in `objectives.py`. Classic ch
 
 The **agent** in our problem setup is the functional $a$ which maps the current **state** $s_t$ to an **action**, which in this case is simply how many units of the $n$ hedging instruments to buy in $t$. In practise, $s_t$ represents the features selected from the available features at time $t$.  
 
+### Initial Delta
+
+The action at time zero is actually given by $a_0$ from the network described above plus an initial delta $a^\mathrm{init}$. The reason for this is that unless the portfolio $Z_T$ provided already contains the initial hedge, this hedge will look very different then subsequent hedges. Therefore, it is easier to train an additional $a^\mathrm{init}$. 
+
+### Recurrence
+
+
 The agent provided in ``agent.py`` provides for both "recurrent" and non-recurrent features. It should be noted that since the state at time $s_t$ contains the previous action $a_{t-1}$ as well as the aggregate position $\delta_{t-1}$ strictly speaking even a "non-recurrent" agent is actually recurrent.
 
 Define the function
@@ -37,7 +44,7 @@ with values in $\\{0,1\\}$.
 
 ### Recurrent State Types
 
-**Classic** (recurrent) **States** are given by
+**Classic Recurrent States** are given by
 
 $$
    h_t = \mathrm{tanh} F(s_t, h_{t-1}) 
@@ -169,10 +176,6 @@ To activate recurrence, set any of the numbers $m_c+m_a+m_r+m_e$ to non-zero:
 The following flag can be used to enforce that $h_t^a \in (-1,+1)$:
 
     config.gym.agent.recurrence.bound_aggr_states = True
-
-### Initial Delta
-
-The action at time zero is actually given by $a_0$ from the network described above plus an initial delta $a^\mathrm{init}$. The reason for this is that unless the portfolio $Z_T$ provided already contains the initial hedge, this hedge will look very different then subsequent hedges. Therefore, it is more robust to train an additional $a^\mathrm{init}$. 
 
 ## Handling non-constant initial market states
 
