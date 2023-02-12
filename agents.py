@@ -31,9 +31,39 @@ class SimpleDenseAgent(tf.keras.layers.Layer):
         Create an agent which returns the action for the given Deep Hedging problem
         See tf.keras.layers.Layer.__call__ for comments
         
-        The agent's __call__ function will take in a dictionar of tenors
-        of all feature avaialble, and return the corresponding action
-        for 'nInst' instruments.
+        The agent's __call__ function will take in a dictionary of tenors of all feature avaialble,
+        and returns the corresponding action for 'nInst' instruments, and any recurrrent states.
+        
+        The generalized agent has the following form:
+        
+        h_{t-1} : previous hidden states. h_{-1} are learned independently.
+                  hidden states are split into continuus states with values in (-1,1) and digital states with values in {0,1}.
+                  We actually enforce this on the way in to avoid having to impose these restrictions on the external world
+                  Hence, let h^raw_{t-1} be the current past hidden raw state, then
+                     h^cont_{t-1}     = tanh( g_{t-1} )
+                     h^digitial_{t-1} = 1{ tanh( g_{t-1} ) > 0. }
+                     h_{t-1}          = (h^cont, h^digital)_{t-1}
+                     
+        f_t     : current feature vector. Includes a_{t-1}.
+        
+        a_t
+        c1_t = A(\theta; f_t, h_{t-1} where \theta are network weights
+        u_t 
+        
+        Types of recurrent states:
+        
+            continous:     h_t = h_{t-1} * sigmoid(c_t) + (1-sigmoid(c_t)) u_t
+        
+        
+        
+        c2_t = sigmoid( c_1 ) + 
+        
+        h_t = g_t * ( 
+        
+        
+        
+        
+        
         
         Parameters
         ----------
@@ -59,32 +89,32 @@ class SimpleDenseAgent(tf.keras.layers.Layer):
         state_features          = config.state("features", [], list, "Named features for the agent to use for the initial state network")
         init_delta_features     = config.init_delta("features", [], list, "Named features for the agent to use for the initial delta network")
         init_delta              = config.init_delta("active", True, bool, "Whether or not to train in addition a delta layer for the first step")
-        self.nContStates        = config("recurrence",   0, Int>=0, "Number of real recurrent states. Set to zero to turn off recurrence")
-        self.nDigitalStates     = config("recurrence01", 0, Int>=0, "Number of digital recurrent states. Set to zero to turn off recurrence")
-        self.like_gru           = config("recurrence_gru", False, bool, "If True, adds a GRU-like update state mechanism")
+
+        self.classic_states     = config.recurrence.states("classic",   0, Int>=0, "Number of 'classic' recurrent states to be used. Such states may suffer from long term memory loss and gradient explosion")
+        self.aggregate_states   = config.recurrence.states("aggregate", 0, Int>=0, "Number of 'aggregate' states to be used. Such states capture in spirit exponentially weighted characteristics of the path")
+        self.past_repr_states   = config.recurrence.states("past_repr", 0, Int>=0, "Number of 'past representation' states to be used. Such states capture data from past dates such as the spot value at the last reset date")
+        self.event_states       = config.recurrence.states("event",     0, Int>=0, "Number of 'event' states to be used. Such states capture digital events such as a barrier breach")
+        self.bound_aggr_states  = config.recurrence("bound_aggr_states", False, bool, "Whether or not to bound aggregate states to (-1,+1)")
+
         self.nInst              = int(nInst)
-        self.nStates            = self.nContStates + self.nDigitalStates
+        self.nUpdateUnits       = self.aggregate_states + self.past_repr_states + self.event_states 
+        self.nStates            = self.classic_states + self.aggregate_states + self.past_repr_states + self.event_states 
         
-        default_state = Config()
-        default_state.depth    = 1
-        default_state.width    = self.nStates
-        default_idelta = Config()
-        default_idelta.depth   = 1
-        default_idelta.width   = self.nInst
- 
         _log.verify( self.State_Feature_Name not in features, "Cannot use internal state name '%s' in feature list", self.State_Feature_Name )
         
         is_recurrent            = self.nStates > 0
         self.state_feature_name = self.State_Feature_Name if is_recurrent else None  
         features                = sorted( features + [ self.State_Feature_Name ] if is_recurrent else features ) 
         
-        nOutput                 = self.nInst
-        if is_recurrent:
-            if not self.like_gru:
-                nOutput         = self.nInst+self.nStates
-            else:
-                nOutput         = self.nInst+2*self.nStates
                 
+        default_state = Config()
+        default_state.depth    = 1
+        default_state.width    = self.nStates
+        default_idelta = Config()
+        default_idelta.depth   = 1
+        default_idelta.width   = self.nInst
+
+        nOutput                 = self.nInst+self.nStates+self.nUpdateUnits
         self._layer             = DenseLayer( features=features, nOutput=nOutput, config=config.network, name=name+"_layer", dtype=dtype )
         self._init_state        = DenseLayer( features=sorted(state_features), nOutput=self.nStates, config=config.state.network, defaults=default_state, name=name+"_init_state", dtype=dtype ) if is_recurrent else None
         self._init_delta        = DenseLayer( features=sorted(init_delta_features), nOutput=self.nInst, config=config.init_delta.network, defaults=default_idelta, name=name+"_init_delta", dtype=dtype ) if init_delta else None
@@ -112,33 +142,99 @@ class SimpleDenseAgent(tf.keras.layers.Layer):
         if self.nStates == 0:
             return self._layer(all_features, training=training), None
         
-        # map states into [-1,+1]
-        all_features = dict(all_features)
-        state        = all_features[self.State_Feature_Name]
-        state        = tf.math.tanh(state, name="tanh_state")
+        # recurrent mode
+        # --------------
         
-        # handle digital states
-        if self.nDigitalStates > 0:
-            cont_state = state[:,:self.nContStates] if self.nContStates > 0 else None
-            digi_state = state[:,self.nContStates:]
-            digi_state = tf.where( digi_state >= 0., 1., 0., name="digital_state" )
-            state      = tf.concat( [cont_state,digi_state], axis = 1, name="cont_digital_state") if self.nContStates > 0 else digi_state
+        # impose limits on existing states 
+        all_features    = dict(all_features)
+        state           = all_features[self.State_Feature_Name]
+        _log.verify( state.shape[1] == self.nStates, "Internal state '%s' should have second dimension %ld; found %ld", self.State_Feature_Name, self.nStates, state.shape[1] )
+        
+        def split_state(state, with_updcand ):
+            state_sizes     = (self.classic_states, self.aggregate_states, self.past_repr_states, self.event_states )
+            update_sizes    = (0,                   self.aggregate_states, self.past_repr_states, self.event_states )
+            start_state     = 0
+            start_update    = sum(state_sizes)
+            out   = []
+            for state_off, update_off in zip( state_sizes, update_sizes):
+                state_here     = state[:,start_state:start_state+state_off] if state_off > 0 else None
+                start_state    += state_off
+                if not with_updcand:
+                    out.append( state_here )
+                else:
+                    update_here    = state[:,start_update:start_update+update_off] if update_off > 0 else None
+                    start_update   += update_off
+                    out.append( (state_here, update_here ) )
+            if with_updcand: 
+                assert start_update == state.shape[1], "Internal error (1): only %ld of %ld states read." % (start_update, state.shape[1])
+            else:
+                assert start_state  == state.shape[1], "Internal error (2): only %ld of %ld states read." % (start_state, state.shape[1])
+            return out
+            
+        split_states    = split_state(state, False)
+        classic_state   = split_states[0]
+        aggregate_state = split_states[1]
+        past_repr_state = split_states[2]
+        event_state     = split_states[3]
+
+        # classic is simple
+        classic_state   = tf.math.tanh( classic_state ) if not classic_state is None else None
+        aggregate_state = tf.math.tanh( aggregate_state) if not aggregate_state is None and self.bound_aggr_states else aggregate_state
+        event_state     = tf.where( event_state > 0.5, 1. , 0. ) if not event_state is None else None
+        
+        # recompose
+        state           = []
+        if not classic_state is None:   state.append( classic_state )
+        if not aggregate_state is None: state.append( aggregate_state )
+        if not past_repr_state is None: state.append( past_repr_state )
+        if not event_state is None:     state.append( event_state )
+        state           = tf.concat( state, axis=1 ) if len(state) > 1 else state[0]
+        assert state.shape[1] == self.nStates, "Internal error (3): should have %ld states not %ld" % (self.nStates, state.shape[1])
+
         all_features[self.State_Feature_Name] = state
 
         # execute
-        output      = self._layer(all_features, training=training)
-        out_action  = output[:,:self.nInst]
-        out_state   = output[:,self.nInst:]
+        output        = self._layer(all_features, training=training)
+        out_action    = output[:,:self.nInst]
+        out_recurrent = output[:,self.nInst:]
+        assert out_recurrent.shape[1] == self.nStates + self.nUpdateUnits, "Internal error (4): expected length %ld but found %ld" % ( self.nStates + self.nUpdateUnits, out_recurrent.shape[1] )
+
+        # process recurrence
+        split_recurrent = split_state(out_recurrent, True)
+        classic         = split_recurrent[0]
+        aggregate       = split_recurrent[1]
+        past_repr       = split_recurrent[2]
+        event           = split_recurrent[3]
+
+        # classic
+        classic_state   = tf.math.tanh( classic[0] ) if not classic[0] is None else None
         
-        # GRU mode
-        # We are not quite applying GRU, but something similar
-        if self.like_gru:
-            assert out_state.shape[1] == self.nStates*2, "Internal error: expected %ld output size, found %ld" % ( self.nStates*2, out_state.shape[1] )
-            control   = out_state[:,self.nStates:]
-            out_state = out_state[:,:self.nStates]
-            control   = tf.math.sigmoid(control)
-            out_state = state * control + (1.-control) * out_state
-            
+        # aggregate
+        if not aggregate_state is None:
+            candidate       = tf.math.tanh( aggregate[0] ) if self.bound_aggr_states else aggregate[0]
+            update          = tf.math.sigmoid( aggregate[1] )
+            aggregate_state = (1. - update) * aggregate_state + update * candidate
+
+        # past_repr
+        if not past_repr_state is None:
+            candidate       = past_repr[0]
+            update          = tf.where( past_repr[1] > 0.5, 1., 0. )
+            past_repr_state = (1. - update) * past_repr_state + update * candidate
+
+        # events
+        if not event_state is None:
+            candidate       = tf.where( event[0] > 0.5, 1., 0. )
+            update          = tf.where( event[1] > 0.5, 1., 0. )
+            event_state     = (1. - update) * event_state + update * candidate
+
+        state           = []
+        if not classic_state is None:   state.append( classic_state )
+        if not aggregate_state is None: state.append( aggregate_state )
+        if not past_repr_state is None: state.append( past_repr_state )
+        if not event_state is None:     state.append( event_state )
+        out_state           = tf.concat( state, axis=1 ) if len(state) > 1 else state[0]
+        assert out_state.shape[1] == self.nStates, "Internal error (5): expected length %ld but found %ld" % ( self.nStates, out_state.shape[1] )
+
         return out_action, out_state
 
     @property
@@ -184,7 +280,7 @@ class SimpleDenseAgent(tf.keras.layers.Layer):
             text_2 +=  "\n Features available for initial delta: %s"\
                        "\n Features used by initial delta:       %s" % ( fmt_list( self._init_delta.available_features ), fmt_list( self._init_delta.features ) )
         if self.is_recurrent:
-            text_1 +=   ", %ld for the initial state" % self._init_state.num_trainable_weights
+            text_1 +=   ", %ld for initial states" % self._init_state.num_trainable_weights
             text_2 +=  "\n Features available for initial state: %s"\
                        "\n Features used by initial state:       %s" % ( fmt_list( self._init_state.available_features ), fmt_list( self._init_state.features ) )
                 
