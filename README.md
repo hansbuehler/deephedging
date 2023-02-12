@@ -7,6 +7,12 @@ The notebook directory has a number of examples on how to use it.
 
 ### Latest major updates:
 
+* **Recurrent Agents** (Feb 12th 2023): improved recurrent network definition by supporting LSTM/GRU-like recurrent states. A summary of the recurrent states supported is provided [here](Network.md).
+
+* **Notebooks** (Feb 12th 2023): upgraded  `notebooks/trainer-recurrent-fwdstart.ipynb` which shows the performance of the recurrent networks vs the non-recurrent default in the case of a forward started option.
+
+----
+
 * **Notebooks** (Jan 29th, 2023):
     * Added `notebooks/trainer-bs.ipynb` showing convergence of the Deep Hedging strategy vs Black & Scholoes. 
     * Added `notebooks/trainer-recurrent-fwdstart.ipynb` which shows the improved (but not perfect) performance of recurrent networks vs standard feed forward networks for forward started options.
@@ -30,6 +36,8 @@ You can now write
 * **TensorBoard** (Jan 29th, 2023): added support for TensorBoard. See `notebooks/trainer-board.ipynb`. However, I did not manage to make it run on SageMaker, neither did I manage to run the profiler on my own machine.
 
 * **Visualization Update** (Jan 29th, 2023): improved visualization during training by adding (a) a view on spot delta and actions, and by adding several views which include the stddev from the mean per plotted bin.  Also added better information on network setup and features used.
+
+----
 
 * **Enabled caching** (Jan 8th, 2023): by default, the code now caches progress every 10 epochs. Training will be picked up at the last caching point when the same code is re-run. If training completed, running the same code again will not trigger new training; you can set `config.train.caching.mode = 'update'`.
 
@@ -80,7 +88,7 @@ In order to run the Deep Hedging, we require:
         * `tf_data['features']['per_step']`: features per time step $t$, e.g. current equity spot, prices for out options, time left, implied vol, values of the boundaries for actions.
         * `tf_data['features']['per_path']`: features per sample path. These are currently none as we are training for fixed instruments, but this can be extended accordingly.
 
-        Note that the actual features $s_t$ available for training are a combination of the above and live features. To obtain a list of supported features, call
+        Note that the actual features $s_t$ available for training are a combination of the above and live features. The list of available features are printed out before training starts. To obtain a list of supported features, call
 
         * `VanillaDeepHedgingGym.available_features_per_step` for the features available per time step, i.e. $s_t$ in above formulation. Call `agent_features_used` to assess which features were actually used by the agent.
 
@@ -97,40 +105,29 @@ In order to run the Deep Hedging, we require:
 To provide your own world with real or simulator data, see `world.py`.
 Here are `world.tf_data` entries used by `gym.call()`:
 
-* `data['market']['payoff']` `(:,)`
-    The payoff $Z_T$ at maturity. Since this is at the time of the expiry of the product, this can be computed off the path until $T$. No derivative pricing model is required.
+* `data['market']['payoff'] (:,)`: the payoff $Z_T$ at maturity. Since this is at the time of the expiry of the product, this can be computed off the path until $T$. No derivative pricing model is required.
 
-* `data['martket']['hedges']` `(:,M,N)`
-    Returns of the hedges, i.e. the vector $DH_t:=H_{T'} - H_t$ for each time step. That means $H_t$ is the market price at time $t$, and $H_{T'}$ is payoff of the instrument at its expiry. In our examples we expand the timeline such that the expiry of all products is part of the market simulator. 
-
+* `data['martket']['hedges'] (:,M,N)`: returns of the hedges, i.e. the vector $DH_t:=H_{T'} - H_t$ for each time step. That means $H_t$ is the market price at time $t$, and $H_{T'}$ is payoff of the instrument at its expiry. In our examples we expand the timeline such that the expiry of all products is part of the market simulator. 
 
     For example, if $S_t$ is spot, $w_t^{(i)}$ is the option's implied volatility at $t$,  $x$ its time-to-maturity, and $k$ a relative strike, then
 $$
     H_t^{(i,t)} = \mathrm{BSCall}( S_t, w^{(i)}_t; T, kS_t ) \ \ \ \mathrm{and} \ \ \ H_{T'}^{(i,t)} = ( S_{t+x} - kS_t )^+
 $$
 
-* `data['martket']['cost']` `(:,M,N)`
+* `data['martket']['cost']` (:,M,N)`: cost $\gamma_t$ of trading the hedges in $t$ for proportional cost $c_t(a) = \gamma_t\cdot |a|$.  
+More advanced implementations allow to pass the cost function itself as a tensorflow model.
+In the simple setting an example for the cost of trading a vanilla call could be $\gamma_t = \gamma^D\, \Delta(t,\cdots)+ \gamma^V\,\mathrm{BSVega}(t,\cdots)$.
 
-    Cost $\gamma_t$ of trading the hedges in $t$ for proportional cost $c_t(a) = \gamma_t\cdot |a|$. 
-    More advanced implementations allow to pass the cost function itself as a tensorflow model.
-    In the simple setting an example for the cost of trading a vanilla call could be $\gamma_t = \gamma^D\, \Delta(t,\cdots)+ \gamma^V\,\mathrm{BSVega}(t,\cdots)$.
+* `data['martket']['unbd_a'], data['martket']['lnbd_a'] (:,M,N)`: min/max allowed action (change of delta) per time step: $a^\mathrm{min}_t \leq a \leq a^\mathrm{max}_t$, componenwise. Note that the min/max values can be path dependent. In the current implementation they will not depend on dynamic states (such as the current position in hedges), but this can be added if required.
 
-* `data['martket']['unbd_a'], data['martket']['lnbd_a']` `(:,M,N)`
+* *`data['features']['per_step'] (:,M,N)`: featues for feeding the action network per time step such as current spot, current implied volatilities, time of the day, etc. Those will be added to the state vector $s_t$.
 
-   min/max allowed action (change of delta) per time step: $a^\mathrm{min}_t \leq a \leq a^\mathrm{max}_t$, componenwise. Note that the min/max values can be path dependent. In the current implementation they will not depend on dynamic states (such as the current position in hedges), but this can be added if required.
-
-* *`data['features']['per_step']` `(:,M,N)`
-
-    Featues for feeding the action network per time step such as current spot, current implied volatilities, time of the day, etc. Those will be added to the state vector $s_t$.
-
-* `data['features']['per_sample']` 1(:,M)`
-    Featues for feeding the action network which are constant along the path such as features of the payoff, risk aversion, etc. This is not used in any of the current examples, but it will allow you to train the model for different payoffs at the same time:
+* `data['features']['per_sample'] (:,M)`: featues for feeding the action network which are constant along the path such as features of the payoff, risk aversion, etc. This is not used in any of the current examples, but it will allow you to train the model for different payoffs at the same time:
 
     * Define different option payoffs $Z_T$ per path
-    * Enure that the characteristic of the option payoff are part of the `per_sample` feature set, and that they are picked up by the respective network agent.
+    * Enure that the characteristic of the option payoff are part of the `per_sample` feature set, and that they are picked up by the respective network agent. See [our paper on learning for different payoffs](https://arxiv.org/abs/2207.07467) as an example.
 
-An example world generator for simplistic model dynamics is provided, but in practise it is recommend to rely
-on fully machine learned market simulators such as https://arxiv.org/abs/2112.06823
+An example world generator for simplistic model dynamics is provided, but in practise it is recommend to rely on fully machine learned market simulators such as https://arxiv.org/abs/2112.06823
 
 ## Installation
 
@@ -145,7 +142,7 @@ See `requirements.txt` for latest version requirements. At the time of writing t
 * Download this git directory in your Python path such that `import deephedging.world` works.
 * Open `notebooks/trainer.ipynb` and run it. 
 
-#### Anaconda
+### Anaconda
 
 In your local conda environment use the following:
         
@@ -160,7 +157,7 @@ Then check that the following works:
         import tensorflow_probability as tfp # ensure this does not fail
         print("TF version %s. Num GPUs Available: %ld" % (tf.__version__, len(tf.config.list_physical_devices('GPU')) ))  # should give you the tenosr flow version and whether it found any GPUs
 
-#### AWS SageMaker
+### AWS SageMaker
 
 (29/1/2023) Finally AWS SageMaker supports TensorFlow 2.10 with and without GPU with the conda environment `conda_tensorflow2_p310`. It is still pretty buggy (e.g. conda is inconsistent out of the box) but seems to work. AWS tends to change their available conda packages, so check which one is available when you are trying this.
 
@@ -186,7 +183,7 @@ If you have cloned the [Deep Hedging git directory](https://github.com/hansbuehl
         sys.path.append(p)
         print("SageMaker: added python path %s" % p)
 
-#### GPU
+### GPU support
 
 In order to run on GPU you must have installed the correct CUDA and cuDNN drivers, see [here](https://www.tensorflow.org/install/source#gpu). This seems to have been done on AWS. 
 Once you have identified the correct drivers, use
@@ -195,7 +192,7 @@ Once you have identified the correct drivers, use
         
 The notebooks in the git directory will print the number of available CPUs and GPUs.
 
-The latest version of Deep Hedging _will_ benefit massively from the presence of a GPU if large batch sizes are used. For example `notebooks/trainer-recurrent-fwdstart.ipynb` experiences a speed up from just above 1 hour to less than 30mins on a `p3.2xlarge` as opposed to a `c5.4xlarge`.
+The latest version of Deep Hedging _will_ benefit quite a bit from the presence of a GPU if large batch sizes are used. For example `notebooks/trainer-recurrent-fwdstart.ipynb` experiences a speed up from just above 1 hour to less than 30mins on a `p3.2xlarge` as opposed to a `c5.4xlarge`.
 
 ## Industrial Machine Learning Code Philosophy
 
