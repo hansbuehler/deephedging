@@ -6,10 +6,11 @@ This archive contains a sample implementation of of the [Deep Hedging framework]
 The notebook directory has a number of examples on how to use it. 
 
 ### Latest major updates:
-* **Enabled caching** (Jan 8th, 2023): by default, the code now caches progress every 10 epochs. Training will be picked up at the last caching point when the same code is re-run. If training completed, running the same code again will not trigger new training; you can set `config.train.caching.mode = 'update'`.
 
-* **Recurrent Agents** (Jan 8th, 2023): the trading agent can now pass on a state from one step to another, allowing it full recurrence. Enable it with `config.gym.agent.recurrence =  r`, where `r` denotes the number of real numbers the agent may pass from one step to the next. 
-As of Jan 29th you can also specify recurrent nodes which have 0 or 1 values using `config.gym.agent.recurrence01 = r`.
+* **Notebooks** (Jan 29th, 2023):
+    * Added `notebooks/trainer-bs.ipynb` showing convergence of the Deep Hedging strategy vs Black & Scholoes. 
+    * Added `notebooks/trainer-recurrent-fwdstart.ipynb` which shows the improved (but not perfect) performance of recurrent networks vs standard feed forward networks for forward started options.
+    * Added `notebooks/utility0.ipynb` which illustrates various monetary utilities.
 
 * **Initial Delta Hedge** (Jan 29th, 2023): by default an additional agent is created which learns an initial delta hedge. This is useful when the `payoff` provided is not yet hedged, and therefore when the initial hedge differs materially from subsequent hedges. This can be turned off with `config.gym.agent.init_delta.active = False`.
 
@@ -30,10 +31,11 @@ You can now write
 
 * **Visualization Update** (Jan 29th, 2023): improved visualization during training by adding (a) a view on spot delta and actions, and by adding several views which include the stddev from the mean per plotted bin.  Also added better information on network setup and features used.
 
-* **Notebooks** (Jan 29th, 2023):
-    * Added `notebooks/trainer-bs.ipynb` showing convergence of the Deep Hedging strategy vs Black & Scholoes. 
-    * Added `notebooks/trainer-recurrent-fwdstart.ipynb` which shows the improved (but not perfect) performance of recurrent networks vs standard feed forward networks for forward started options.
-    * Added `notebooks/utility0.ipynb` which illustrates various monetary utilities.
+* **Enabled caching** (Jan 8th, 2023): by default, the code now caches progress every 10 epochs. Training will be picked up at the last caching point when the same code is re-run. If training completed, running the same code again will not trigger new training; you can set `config.train.caching.mode = 'update'`.
+
+* **Recurrent Agents** (Jan 8th, 2023): the trading agent can now pass on a state from one step to another, allowing it full recurrence. Enable it with `config.gym.agent.recurrence =  r`, where `r` denotes the number of real numbers the agent may pass from one step to the next. 
+As of Jan 29th you can also specify recurrent nodes which have 0 or 1 values using `config.gym.agent.recurrence01 = r`.
+
 
 _Beta version. Please report any issues. Please see installation support below._
 
