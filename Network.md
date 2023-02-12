@@ -121,14 +121,17 @@ Here, $a_t$ is the action at time $t$. We then also define the hidden states at 
 $$
     h^c_t := \mathrm{tanh}( F^c_t ) \ ,
 $$
+
 $$
     z^a_t := \mathrm{sigmoid}( \hat z^a_t ) \ \ \ \mathrm{and\ then} \ \ \ 
     h^a_t := h^a_{t-1} (1 - z^a_t) + z^a_t F^a_t\ ,
 $$
+
 $$
     z^r_t := \mathbf{1}( \hat z^r_t ) \ \ \ \mathrm{and\ then} \ \ \ 
     h^r_t := h^r_{t-1} (1 - z^r_t) + z^r_t F^r_t\ , 
 $$
+
 $$
     z^e_t := \mathbf{1}( \hat z^r_t ) \ \ \ \mathrm{and\ then} \ \ \ 
     h^e_t := h^e_{t-1} (1 - z^e_t) + z^e_t \mathbf{1}( F^e_t ) \ .
