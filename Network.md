@@ -4,52 +4,71 @@
 This document describes the default agent used in the Deep Hedging code base. This is _not_ the agent used in our [Deep Hedging paper](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3120710) but is a more advanced version. 
 
 The Deep Hedging problem for a horizon $T$ hedged over $M$ time steps with $N$ hedging instruments is finding an optimal *action* function $a$ as a function of feature states $s_0,\ldots,s_{T-1}$ which solves
+
 $$
  \sup_a:\ \mathrm{E}\left[\ 
     Z_T + \sum_{t=0}^{T-1} a(s_t) \cdot DH_t + \gamma_t \cdot | a(s_t) H_t |
  \ \right] \ .
-$$ c.f. the description in the [main document](README.md).
+$$
+
+c.f. the description in the [main document](README.md).
 
 The _agent_ here is the functional $a$ which maps the current **state** $s_t$ to an **action**, which in this case is simply how many units of the $n$ hedging instruments to buy in $t$. In practise, $s_t$ represents the features available at time $t$.  
 
 The agent provided in ``agent.py`` provides for both "recurrent" and non-recurrent featyres. Ut should be noted that since the state at time $s_t$ contains the previous steps action $a_{t-1}$ as well as the aggregate position $\delta_{t-1}$ strictly speaking even a "non-recurrent" agent is actually recurrent.
 
 Define the function
+
 $$
-    \mathbf{1}(x) := \left\{ \begin{array}{ll} 1 & \mathrm{if}\ x > 0.5\\
+    \mathbf{1}(x) := \left\\{ \begin{array}{ll} 1 & \mathrm{if}\ x > 0.5\\
                                     0 & \mathrm{else.} 
                                     \end{array}\right.
-$$ with values in $\{0,1\}$.
+$$
+
+with values in $\\{0,1\\}$.
 
 ### Recurrent State Types
 
 **Classic** (recurrent) **States** are given by
+
 $$
    h_t = \mathrm{tanh} F(s_t, h_{t-1}) 
 $$
+
 where $F$ is a neural network. This is the original recurrent network formulation and suffers from both gradient explosion and long term memory loss. To alleviate this somewhat we restrict $h_t$ to $(-1,+1)$.
 
 **Aggregate States** represent aggregate statistics of the path, such as realized vol, skew or another functions of the path. The prototype exponential aggregation function for such a hidden state $h$ is given as 
+
 $$
    h_t = h_{t-1} (1 - z_t ) + z_t F(s_t, h_{t-1})  \ \ \ \ z_t \in [0,1]
 $$ 
+
 where $F$ is a neural network, and where $z_t$ is an "update gate vector". This is also known as a "gated recurrent unit" and is similar to an LSTM node. 
 
 In quant finance such states are often written in diffusion notation with $z_t \equiv \kappa_t\, dt$ where $\kappa_t\geq 0$ is a mean-reversion speed. In this case the $dt\downarrow 0$ limit becomes
+
 $$
-    h_t = e^{-\int_0^t\! \kappa_s\,ds} h_0 + \int_0^t\!\! \kappa_u e^{-\int_u^t\! \kappa_s\,ds} F(s_u,h_{u-})\,du \ .
-$$ The appendix provides the derivation of this formula from its associated SDE.
+    h_t = e^{-\int_0^t\! \kappa_s\,ds} h_0 + \int_0^t \kappa_u e^{-\int_u^t \kappa_s\,ds} F(s_u,h_{u-})\,du \ .
+$$
+
+The appendix provides the derivation of this formula from its associated SDE.
 
 **Past Representation States:** information gathered at a fixed points in time, for example the spot level at a reset date. Such data are not accessible before their observation time.
 The prototype equation for such a process is
-$$
- h_t = h_{t-1} (1 - z_t ) + z_t F(s_t, h_{t-1}) \ \ \ \ z_t \in \{0,1\}
- $$ which looks similar as before but where $z_t$ now only takes values in $\{0,1\}$. This allows encoding, for example, the spot level at a given fixed time $\tau$.
 
-**Event States** which track e.g. whether a barrier was breached. This looks similar to the previous example, but the event itself has values in $\{0,1\}$.
 $$
- h_t = h_{t-1} (1 - z_t ) + z_t \mathbf{1}\!\Big(  F(s_t, h_{t-1}) \Big)  \ \ \ \ z_t \in \{0,1\}
- $$  where we need to make sure that $h_{-1}\in\{0,1\}$, too. 
+ h_t = h_{t-1} (1 - z_t ) + z_t F(s_t, h_{t-1}) \ \ \ \ z_t \in \\{0,1\\}
+$$ 
+ 
+which looks similar as before but where $z_t$ now only takes values in $\\{0,1\\}$. This allows encoding, for example, the spot level at a given fixed time $\tau$.
+
+**Event States** which track e.g. whether a barrier was breached. This looks similar to the previous example, but the event itself has values in $\\{0,1\\}$.
+
+$$
+ h_t = h_{t-1} (1 - z_t ) + z_t \mathbf{1} \Big(  F(s_t, h_{t-1}) \Big)  \ \ \ \ z_t \in \\{0,1\\}
+$$
+
+where we need to make sure that $h_{-1}\in\\{0,1\\}$, too. 
 
 ## Definition of the Network
 
@@ -59,6 +78,7 @@ Let $m:=m_s+m_c+m_a+m_r+m_e$ be the dimension of the input vector for the networ
 
 At step $t$, assume now that $(s_t,h^c_{t-1},h^a_{t-1},h^r_{t-1},h^e_{t-1})\in \mathbb{R}^m$.
 We call $w\in\mathbb{N}$ the `width` of the network, and $d\in\mathbb{N}$ its `depth`. Also assume that $\alpha:\mathbb{R}\rightarrow \mathbb{R}$ is an `activation` function with the usual convention of elementwise application for vector arguments. We will also use a `final_activation` function $\ell:\mathbb{R}\rightarrow\mathbb{R}$ which will usually be `linear`.
+
 $$
     y^0 := \alpha\left( b^0 + W^0 \cdot \left( \begin{array}{c}
                 s_t \\
@@ -69,13 +89,17 @@ $$
             \end{array}
     \right) \right) \ \ \ \ \mathrm{where\ we\ train}\ W^0 \in \mathbb{R}^{w,m}, b^0\in \mathbb{R}^w.
 $$
+
 and where $\alpha$ is an activation function. We then iteratively apply for $k=1,\ldots,d-1$:
+
 $$
     y^{k+1} = \alpha\left( b^k + W^k \cdot y^k
     \right) \ \ \ \ \mathrm{where\ we\ train}\ W^k \in \mathbb{R}^{w,w}, b^k\in \mathbb{R}^w.
 $$
+
 Let now $M:=m_s+m_c+2m_a+2m_c+2m_e$.
 In the final step we set
+
 $$
     \left(
             \begin{array}{c}
@@ -91,7 +115,9 @@ $$
     \right)= \ell\left( b^{k+1} + W^{k+1} \cdot y^{k+1}
     \right) \ \ \ \ \mathrm{where\ we\ train}\ W^{k+1} \in \mathbb{R}^{M,w}, b^{k+1}\in \mathbb{R}^M.
 $$
+
 Here, $a_t$ is the action at time $t$. We then also define the hidden states at $t$ in line with above definition as
+
 $$
     h^c_t := \mathrm{tanh}( F^c_t ) \ ,
 $$
@@ -157,31 +183,46 @@ Just like the initial hidden states, this is either a vetor of size $n$ to learn
 
 ### Constant mean reversion
 Consider
+
 $$
     dx_t = \kappa (y_t - x_t)\,dt
     \ \ \ \ \Leftrightarrow \ \ \ \
     x_{t+dt} = \kappa dt\ y_t + (1 - \kappa dt )\ x_t
-$$ Then
+$$
+
+Then
+
 $$
     d\left( e^{\kappa t} x_t \right)
         = \kappa e^{\kappa t} x_t\,dt +
         \kappa e^{\kappa t}(y_t - x_t)\,dt = \kappa e^{\kappa t}y_t\,dt
-$$ and therefore
+$$
+
+and therefore
+
 $$
     x_t = e^{-\kappa t} x_0 + \kappa \int_0^t e^{-\kappa(t-s)} y_s\,ds
 $$
+
 ### Mean reversion as function of time
 
 Let
+
 $$
 dx_t = \kappa_t (y_t - x_t)\,dt
-$$ Set $K_t:=\exp(\int_0^t \kappa_s\,ds)$. Then
+$$
+
+Set $K_t:=\exp(\int_0^t \kappa_s\,ds)$. Then
+
 $$
     d\left( K_t x_t \right)
         = \kappa_t K_t x_t\,dt +
         \kappa_t K_t (y_t - x_t)\,dt = \kappa_t K_t y_t\,dt
-$$ and therefore
 $$
-    x_t = e^{-\int_0^t\! k_s\,ds} x_0
-        + \int_0^t\! \kappa_r\,e^{-\int_r^t\!\kappa_s\,ds } y_s\,ds
+
+and therefore
+
+$$
+    x_t = e^{-\int_0^t k_s\,ds} x_0
+        + \int_0^t \kappa_r\,e^{-\int_r^t\!\kappa_s\,ds } y_s\,ds
 $$
