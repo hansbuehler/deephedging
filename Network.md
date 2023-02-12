@@ -15,7 +15,7 @@ c.f. the description in the [main document](README.md).
 
 The _agent_ here is the functional $a$ which maps the current **state** $s_t$ to an **action**, which in this case is simply how many units of the $n$ hedging instruments to buy in $t$. In practise, $s_t$ represents the features available at time $t$.  
 
-The agent provided in ``agent.py`` provides for both "recurrent" and non-recurrent featyres. Ut should be noted that since the state at time $s_t$ contains the previous steps action $a_{t-1}$ as well as the aggregate position $\delta_{t-1}$ strictly speaking even a "non-recurrent" agent is actually recurrent.
+The agent provided in ``agent.py`` provides for both "recurrent" and non-recurrent featyres. It should be noted that since the state at time $s_t$ contains the previous steps action $a_{t-1}$ as well as the aggregate position $\delta_{t-1}$ strictly speaking even a "non-recurrent" agent is actually recurrent.
 
 Define the function
 
