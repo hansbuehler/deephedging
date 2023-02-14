@@ -10,6 +10,7 @@ June 30, 2022
 from deephedging.base import Logger, Config, dh_dtype, tf, tfCast, pdct, tf_dict, assert_iter_not_is_nan, DIM_DUMMY
 from cdxbasics.dynaplot import figure, colors_tableau
 from cdxbasics.util import uniqueHash
+from collections.abc import Mapping
 import numpy as np
 import math as math
 #from tqdm import tqdm
@@ -327,19 +328,35 @@ class SimpleWorld_Spot_ATM(object):
             
         # payoff
         # ------
+        # The payoff function may return either payoff per sample, or dictionary with 'payoff' and 'features'
+        # The features are expected to be of dimension (nSamples, nSteps, n).
         
         if not isinstance(payoff_f, np.ndarray):
             payoff    = payoff_f( spot[:,:nSteps+2] )
+            py_feat   = None
+            if isinstance( payoff, Mapping ):
+                py_feat = np.asarray( payoff['features'] )
+                payoff  = np.asarray( payoff['payoff'] )
+                
+                _log.verify( len(py_feat.shape) in [2,3], "payoff['features']: must have dimension 2 or 3, found %ld", len(py_feat.shape) )
+                _log.verify( py_feat.shape[0] == nSamples and py_feat.shape[1] == nSteps, "payoff['features']: first two dimension must be (%ld,%ld). Found (%ld, %ld)", nSamples, nSteps, py_feat.shape[0], py_feat.shape[1] )
+                py_feat    = py_feat[:,0] if len(py_feat) == 2 else py_feat
+            else:
+                payoff  = np.asarray( payoff )
+            
             payoff    = payoff[:,0] if payoff.shape == (nSamples,1) else payoff
             _log.verify( payoff.shape == (nSamples,), "'payoff' function which receives a vector spots[nSamples,nSteps+1] must return a vector of size nSamples. Found shape %s", payoff.shape )
         else:
             _log.verify( payoff_f.shape == (nSamples,), "'payoff' if a vector is provided, its size must match the sample size. Expected shape %s, found %s", (nSamples,), payoff_f.shape )
             payoff     = payoff_f
+            py_feat    = None
             
-        # unique_id:
+        # -----------------------------
+        # unique_id
+        # -----------------------------
         # Default handling for configs will ignore any function definitions, e.g. in this case 'payoff'.
         # we therefore manually generate a sufficient hash
-        self.unique_id = uniqueHash( [ config.input_dict(), payoff, self.tf_dtype.name ] )
+        self.unique_id = uniqueHash( [ config.input_dict(), payoff_f, self.tf_dtype.name ],parse_functions = True )
             
         # -----------------------------
         # store data
@@ -384,6 +401,9 @@ class SimpleWorld_Spot_ATM(object):
                 cost_v      = cost_dC
             )
             
+        if not py_feat is None:
+            self.data.features.per_step['payoff_features'] = py_feat
+                   
         # the following variables must always be present in any world
         # it allows to cast dimensionless variables to the number of samples
         self.data.features.per_path[DIM_DUMMY] = (payoff * 0.)[:,np.newaxis]  # (None,1)
@@ -425,7 +445,8 @@ class SimpleWorld_Spot_ATM(object):
         self.nSamples  = nSamples
         self.nInst     = 1 if strike <= 0. else 2
         self.dt        = dt
-        
+        self.timeline  = np.cumsum( np.linspace( 0., nSteps, nSteps+1, endpoint=True, dtype=np.float32 ) ) * dt
+
         self.inst_names = [ 'spot' ]
         if strike > 0.:
             self.inst_names.append( "ATM Call" )

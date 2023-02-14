@@ -199,6 +199,21 @@ def tf_make_dim( tensor : tf.Tensor, dim : int ) -> tf.Tensor:
         _log.throw( "Error converting tensor to dimension %ld: %s\nTensor is %s of type %s", dim, e, str(tensor), type(tensor) )
 
 # -------------------------------------------------
+# Remove near-identifical elements from numpy array
+# -------------------------------------------------
+
+def np_unique_tol( x : np.ndarray, tol : float = 1E-8, is_sorted : bool = False ) -> np.ndarray:
+    """ Returns the sorted elements of 'x' which are at least 'tol' distant from each other """
+    x        = np.sort(x) if not is_sorted else np.asarray(x)
+    dx       = x[ 1:] - x[:-1]
+    ixs      = np.full((len(x),), True, dtype=np.bool_)
+    ixs[:-1] = dx > tol
+    x        = x[ixs]
+    assert len(x) > 0, "Operation failed: all indices removed?"
+    if len(x) > 1: assert np.min( x[1:] - x[:-1] )>=tol/2., ( "Operation failed. Please debug. ", x )
+    return x
+
+# -------------------------------------------------
 # Basic arithmetics for non-uniform distributions
 # -------------------------------------------------
 
