@@ -22,7 +22,7 @@ class Strip(object):
         self.t = t
         
     @property
-    def delta(self):
+    def fd_delta(self):
         """ First order derivative approximation of 'F'. Returns tuple x, delta """
         if len(self.X) < 3:
             return None, None
@@ -30,7 +30,7 @@ class Strip(object):
         return self.X[1:-1], delta
 
     @property
-    def gamma(self):
+    def fd_gamma(self):
         """ Second order derivative approximation of 'F'. Returns tuple x, gamma """
         if len(self.X) < 3:
             return None, None
@@ -44,21 +44,36 @@ class Strip(object):
         fu     = self.F[2:]
         fm     = self.F[1:-1]
         fd     = self.F[:-2]
-        gamma  = fu * w_u + fd * w_d - fm * w_u * w_d
+        gamma  = fu * w_u + fd * w_d - fm * ( w_u + w_d )
         return self.X[1:-1], gamma
     
-    def delta_for( self, spots ):
-        """ Linearly interpolates delta at 'spots' """
-        x, d = self.delta
-        return np.interp( spots, x, d )
+    def bump_delta( self, spots, dx ):
+        """
+        Returns delta computed using a 'dx' bump 
+        A good nump size is vol*sqrt(dt)
+        """
+        xup = spots+dx
+        xdn = spots-dx
+        fup = np.interp( xup, self.X, self.F )
+        fdn = np.interp( xdn, self.X, self.F )
+        delta = ( fup - fdn ) / ( 2.*dx )
+        return delta
 
-    def gamma_for( self, spots ):
-        """ Linearly interpolates gamma at 'spots' """
-        x, d = self.gamma
-        return np.interp( spots, x, d )
+    def bump_delta_gamma( self, spots, dx ):
+        """
+        Returns delta, gamma computed using a 'dx' bump 
+        A good nump size is vol*sqrt(dt)
+        """
+        xup = spots+dx
+        xdn = spots-dx
+        f   = np.interp( spots, self.X, self.F )
+        fup = np.interp( xup, self.X, self.F )
+        fdn = np.interp( xdn, self.X, self.F )
+        delta = ( fup - fdn ) / ( 2.*dx )
+        gamma = ( fup - 2*f + fdn ) / (dx**2)
+        return delta, gamma
 
-
-def bs_fd( *, spots : list, times : np.array, payoff, vol : float = 0.2, cn_factor : bool = 0.55 ) -> list:
+def bs_fd( *, spots : list, times : np.array, payoff, vol : float = 0.2, cn_factor = "implicit" ) -> list:
     """
     Finite difference solver for American and Barrier options wuth simple Black & Scholes
     The solver is a classic crank-nicolson solver over a non-homogeneous grid.
@@ -82,7 +97,7 @@ def bs_fd( *, spots : list, times : np.array, payoff, vol : float = 0.2, cn_fact
                         F : function
                         delta : F'
                         gamma : F''
-            The first entry is the initial value at times[0] 
+            The first entry is the in  itial value at times[0] 
 
                                   
     Diffusion:
