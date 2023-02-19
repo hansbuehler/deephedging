@@ -339,9 +339,18 @@ def perct_exp( x : np.ndarray, lo : float, hi : float, weights : np.ndarray = No
     """
     Compute the expectation over a percentile i.e. it will sort x and then compute np.mean( x[:len*lo] ) and np.mean( x[hi*len:] ).
     If a matrix instead of vector is given it will assume that the first dim is the sample dimension.
-    
-    If x is a vector, the function returns a 2-dimensional vector.
-    If x is a matrix of second dimension n2, then the function returns a matrix of dimension [2,n2].
+        
+    Parameters
+    ----------
+        x  : array
+        lo : lower percentile [0,1]
+        hi : higher percentile [0,1]
+        weights: sample weights or 1/n
+        
+    Returns
+    -------
+        If x is a vector, the function returns a 2-dimensional vector.
+        If x is a matrix of second dimension n2, then the function returns a matrix of dimension [2,n2].
     """    
     lo   = float(lo)
     hi   = float(hi)
@@ -402,15 +411,15 @@ def fmt_big_number( number : int ) -> str:
     """ Return a nicely formatted big number string """
     if number >= 10**10:
         number = number//(10**9)
-        number = float(number) / 1000.
+        number = round(number,2)
         return "%gG" % number
     if number >= 10**7:
         number = number//(10**6)
-        number = float(number) / 1000.
+        number = round(number,2)
         return "%gM" % number
     if number >= 10**4:
-        number = number//(10**3)
-        number = float(number) / 1000.
+        number = number/(10**3)
+        number = round(number,2)
         return "%gK" % number
     return str(number)
 

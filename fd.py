@@ -145,7 +145,7 @@ def bs_fd( *, spots : list, times : np.array, payoff, vol : float = 0.2, cn_fact
         elif cn_factor == "explicit":
             cn_factor = 1.
         else:
-            _log.throw("Unknown 'cn_factor' '%s'. Must be 'implicit', 'explicit', or a Crank-Nicolson factor. Found %s", cn_factor)
+            _log.throw("Unknown 'cn_factor' '%s'. Must be 'implicit', 'explicit', or a Crank-Nicolson factor.", cn_factor)
     else:
         cn_factor = float(cn_factor)
         _log.verify( cn_factor >= 0. and cn_factor <= 1., "'cn_factor' must be from [0,1]. Found %g", cn_factor )

@@ -402,7 +402,7 @@ class SimpleWorld_Spot_ATM(object):
             )
             
         if not py_feat is None:
-            self.data.features.per_step['payoff_features'] = py_feat
+            self.data.features.per_step.payoff_features = py_feat
                    
         # the following variables must always be present in any world
         # it allows to cast dimensionless variables to the number of samples
