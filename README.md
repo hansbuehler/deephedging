@@ -137,6 +137,7 @@ on fully machine learned market simulators such as https://arxiv.org/abs/2112.06
 See `requirements.txt` for latest version requirements. At the time of writing this markdown these are
 * Use Python 3.7 or later
 * Pip (or conda) install `cdxbasics` version 0.2.9 or higher
+* Install `cvxpy`
 * Install TensorFlow 2.7 or higher, ideally 2.10 or better.
 * Install tensorflow_probability 0.15 or higher, c.f. https://anaconda.org/conda-forge/tensorflow-probability. 
 
@@ -152,6 +153,7 @@ In your local conda environment use the following:
         conda install "cdxbasics>=0.2.11" -c hansbuehler
         conda install -c conda-forge tensorflow>=2.10
         conda install -c conda-forge tensorflow-probability==0.14
+        conda install cvxpy
 
 At the time of writing, this gives you TensowFlow 2.10 and the correct `tensorflow-probability` version 0.14. 
 Then check that the following works:
@@ -170,7 +172,7 @@ Open a terminal and write:
         bash
         conda activate tensorflow2_p310
         python -m pip install --upgrade pip
-        pip install cdxbasics tensorflow_probability==0.14  
+        pip install cdxbasics tensorflow_probability==0.14 cvxpy
 
 The reason we are using `pip` here an not `conda` is that `conda_tensorflow2_p310` is inconsistent, so using `conda` is pretty unreliable and very slow. Either way, above should give you an environemnt with Tensorflow 2.10, including with GPU support if your selected instance has GPUs. (Note that GPUs do not seem to bring benefits with the current code base.) 
 

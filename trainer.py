@@ -141,7 +141,7 @@ class Monitor(tf.keras.callbacks.Callback):
     -- Implements dyanmic visual updates
     """
     
-    def __init__(self, *, gym, world, val_world, result0, training_info, config = Config(), output_level = "all" ):# NOQA
+    def __init__(self, *, gym, world, val_world, result0, training_info, remote_plotter = None, config = Config(), output_level = "all" ):# NOQA
         tf.keras.callbacks.Callback.__init__(self)
         
         self.gym              = gym  
@@ -158,9 +158,13 @@ class Monitor(tf.keras.callbacks.Callback):
         self.cache_mode       = config.caching("mode", CacheMode.ON, CacheMode.MODES, "Caching strategy: %s" % CacheMode.HELP)
         self.cache_freq       = config.caching("epoch_freq", 10, Int>0, "How often to cache results, in number of epochs")
         cache_file_name       = config.caching("debug_file_name", None, help="Allows overwriting the filename for debugging an explicit cached state")
-        self.plotter          = Plotter(training_info.output_level == 'all', config.visual) if training_info.output_level != 'quiet' else None
         self.no_graphics      = training_info.output_level != 'all'
-        if self.plotter is None: config.visual.mark_done()
+        self.print_text       = training_info.output_level != 'quiet'
+        self.plotter          = remote_plotter
+        if self.plotter is None and training_info.output_level != 'quiet':
+            self.plotter      = Plotter(world, val_world, training_info.output_level == 'all', config.visual)
+        else:
+            config.visual.mark_done()
         config.done()
                 
         self.progress_data    = TrainingProgressData(    
@@ -170,7 +174,7 @@ class Monitor(tf.keras.callbacks.Callback):
                                         result0        = result0
                                         )
         
-        if not self.plotter is None:
+        if self.print_text:
             print(gym.agent.description)
             print(gym.utility.description)
 
@@ -182,7 +186,7 @@ class Monitor(tf.keras.callbacks.Callback):
         self.full_cache_file  = self.cache_dir.fullKeyName( self.cache_file )
 
         if not self.cache_mode.is_off:
-            if not self.plotter is None: print("Caching enabled @ '%s'" %  self.full_cache_file)
+            if self.print_text: print("Caching enabled @ '%s'" %  self.full_cache_file)
             if self.cache_mode.delete:
                 self.cache_dir.delete( self.cache_file )    
             elif self.cache_mode.read:
@@ -192,18 +196,18 @@ class Monitor(tf.keras.callbacks.Callback):
                     # load everything except the gym 
                     # restore gym
                     if not self.gym.restore_from_cache( cache['gym'] ):
-                        if not self.plotter is None: print(\
+                        if self.print_text: print(\
                               "\rCache consistency error: could not write weights from cache to current model. This is most likely because the model architecture changed.\n"\
                               "Use config.train.caching.mode = 'renew' to rebuild the cache if this is the case. Use config.train.caching.mode = 'off' to turn caching off.\n")
                     else:
                         self.progress_data = cache['progress_data']
                         _log.verify( self.progress_data.epoch >= 0, "Error: object restored from cache had epoch set to %ld", self.progress_data.epoch )
                         self.cache_last_epoch = self.progress_data.epoch
-                        if not self.plotter is None: print("Cache successfully loaded. Current epoch: %ld" % (self.progress_data.epoch+1) )
+                        if self.print_text: print("Cache successfully loaded. Current epoch: %ld" % (self.progress_data.epoch+1) )
 
         # initialize timing
         if self.progress_data.epoch+1 >= training_info.epochs:
-            if not self.plotter is None: print( \
+            if self.print_text: print( \
                    "Nothing to do: cached model loaded from %s was trained for %ld epochs; you have asked to train for %ld epochs. "\
                    "If you want to force training: raise number of epochs or turn off caching.%s" % \
                    ( self.full_cache_file, self.progress_data.epoch+1, training_info.epochs, "\nPlotting results for the trained model." if not self.no_graphics else "" ) )
@@ -224,7 +228,7 @@ class Monitor(tf.keras.callbacks.Callback):
         if self.progress_data.epoch == -1:
             weights    = fmt_big_number( self.gym.num_trainable_weights )
             act_epochs = self.training_info.epochs-(self.progress_data.epoch+1)
-            if not self.plotter is None: print("Deep Hedging Engine: first of %ld epochs for training %s weights over %ld samples with %ld validation samples started. This training run took %s so far. Now compiling graph ...       " % (act_epochs, weights, self.world.nSamples, self.val_world.nSamples, fmt_seconds(time.time()-self.time0)), end='')
+            if self.print_text: print("Deep Hedging Engine: first of %ld epochs for training %s weights over %ld samples with %ld validation samples started. This training run took %s so far. Now compiling graph ...       " % (act_epochs, weights, self.world.nSamples, self.val_world.nSamples, fmt_seconds(time.time()-self.time0)), end='')
         self.time_start    = time.time() if self.time_start is None else self.time_start
             
     def on_epoch_end( self, loop_epoch, logs = None ):
@@ -235,7 +239,7 @@ class Monitor(tf.keras.callbacks.Callback):
         """
         if self.progress_data.epoch == -1:
             empty = " "*200
-            if not self.plotter is None: print("\r\33[2K "+empty+"\r", end='')
+            if self.print_text: print("\r\33[2K "+empty+"\r", end='')
         
         time_now = time.time()
         self.progress_data.on_epoch_end( 
@@ -259,9 +263,7 @@ class Monitor(tf.keras.callbacks.Callback):
         # ----
         
         if not self.plotter is None:
-            self.plotter(world             = self.world, 
-                         val_world         = self.val_world, 
-                         last_cached_epoch = self.cache_last_epoch,
+            self.plotter(last_cached_epoch = self.cache_last_epoch,
                          progress_data     = self.progress_data, 
                          training_info     = self.training_info )
         
@@ -274,7 +276,7 @@ class Monitor(tf.keras.callbacks.Callback):
         """
         # tell user what happened
         empty = " "*200
-        if not self.plotter is None: print("\r\33[2K"+ ( "*** Aborted *** " if self.is_aborted else "") + empty, end='')
+        if self.print_text: print("\r\33[2K"+ ( "*** Aborted *** " if self.is_aborted else "") + empty, end='')
 
         # cache current state /before/ we reset gym to its best weights
         # this way we can continue to train from where we left it
@@ -288,14 +290,12 @@ class Monitor(tf.keras.callbacks.Callback):
 
         # upgrade plot
         if not self.plotter is None:
-            self.plotter(world             = self.world, 
-                         val_world         = self.val_world, 
-                         last_cached_epoch = self.cache_last_epoch,
+            self.plotter(last_cached_epoch = self.cache_last_epoch,
                          progress_data     = self.progress_data, 
                          training_info     = self.training_info )
             self.plotter.close()
                 
-        if not self.plotter is None: print("\n Status: %s.\n Weights set to best epoch: %ld\n%s Time: %s" % (status, self.progress_data.best_epoch+1,cached_msg,fmt_now()) )
+        if self.print_text: print("\n Status: %s.\n Weights set to best epoch: %ld\n%s Time: %s" % (status, self.progress_data.best_epoch+1,cached_msg,fmt_now()) )
     
     def write_cache(self):
         """ Write cache to disk """
@@ -318,6 +318,7 @@ def default_loss( y_true,y_pred ):
 def train(  gym,
             world,
             val_world,
+            remote_plotter,
             config  : Config = Config() ):
     """ 
     Train our deep hedging model with with the provided world.
@@ -390,6 +391,7 @@ def train(  gym,
                                 val_world      = val_world,
                                 result0        = result0, 
                                 training_info  = training_info,
+                                remote_plotter = remote_plotter,
                                 config         = config,
                                 output_level   = output_level)
     if output_level != "quiet": print("Training monitor initialized. Took %s" % fmt_seconds(time.time()-t0))
@@ -433,7 +435,6 @@ def train(  gym,
 
     monitor.finalize(status = why_stopped)
     if output_level != "quiet": print("Training terminated. Total time taken %s" % fmt_seconds(time.time()-t0))
-
 
 # =========================================================================================
 # find utility without full gym
