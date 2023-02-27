@@ -318,7 +318,8 @@ def default_loss( y_true,y_pred ):
 def train(  gym,
             world,
             val_world,
-            remote_plotter,
+            *,
+            remote_plotter = None,
             config  : Config = Config() ):
     """ 
     Train our deep hedging model with with the provided world.
@@ -435,101 +436,6 @@ def train(  gym,
 
     monitor.finalize(status = why_stopped)
     if output_level != "quiet": print("Training terminated. Total time taken %s" % fmt_seconds(time.time()-t0))
-
-# =========================================================================================
-# find utility without full gym
-# =========================================================================================
-        
-def utility_loss( y_true,y_pred ):     
-    """ Default loss: ignore y_true """
-    return -y_pred # want to minimize utility loss
-      
-def train_utillity( utility, world, payoff : tf.Tensor= None, pnl : tf.Tensor = None, cost : tf.Tensor = None, config = Config() ) -> tf.Tensor:
-    """
-    Compute utility for a payoff
-
-    Parameters
-    ----------
-        payoff : payoff
-        features : dictionary of features available at time 0
-        config : configuration
-
-    Returns
-    -------
-        Tuple with results:
-            ( utility, utility0, train_history )
-        
-    """
-    output_level     = config("output_level", "all", ['quiet', 'text', 'all'], "What to print during training")
-    debug_numerics   = config.debug("check_numerics", False, bool, "Whether to check numerics.")
-    
-    # training parameters    
-    batch_size       = config.train("batch_size",  None, help="Batch size")
-    epochs           = config.train("epochs",      100, Int>0, help="Epochs")
-    run_eagerly      = config.train("run_eagerly", False, help="Keras model run_eagerly. Turn to True for debugging. This slows down training. Use None for default.")
-    learning_rate    = config.train("learing_rate", None, help="Manually set the learning rate of the optimizer")
-    tf_verbose       = config.train("tf_verbose", 0, Int>=0, "Verbosity for TensorFlow fit()")
-    optimzier        = create_optimizer(config.train)
-    
-    # compile
-    # -------
-    
-    features_per_step, \
-    features_per_path  = VanillaDeepHedgingGym._features(world.tf_data)
-    features_time_0 = {}
-    features_time_0.update( { f:features_per_path[f] for f in features_per_path } )
-    features_time_0.update( { f:features_per_step[f][:,0,:] for f in features_per_step})
-
-    payoff            = tf.convert_to_tensor(payoff, dtype=utility.dtype) if not payoff is None else world.tf_data['market']['payoff']
-    pnl               = tf.convert_to_tensor(pnl, dtype=utility.dtype) if not pnl is None else payoff*0.
-    cost              = tf.convert_to_tensor(cost, dtype=utility.dtype) if not cost is None else payoff*0.
-
-    _log.verify( len(payoff.shape) == 1, "'payoff': expected vector, found tensor of shape %s", payoff.shape.as_list() )
-    _log.verify( pnl.shape == payoff.shape,  "'pnl' must have same shape as 'payoff'. Found %ld and %ld, respectively", pnl.shape.as_list(), payoff.shape.as_list() )
-    _log.verify( cost.shape == payoff.shape, "'cost' must have same shape as 'payoff'. Found %ld and %ld, respectively", cost.shape.as_list(), payoff.shape.as_list() )
-    assert len( world.tf_sample_weights.shape ) == 2 and world.tf_sample_weights.shape[0] == payoff.shape[0] and world.tf_sample_weights.shape[1] == 1, "Internal error: world.tf_sample_weights shape is %s" % (str(world.tf_sample_weights.shape.as_list()))
-    
-    tf_data=dict(   features_time_0 = features_time_0,
-                    payoff          = payoff, 
-                    pnl             = pnl,
-                    cost            = cost )
-
-    r0 = utility( tf_data )
-    u0 = tf.reduce_sum( r0 * world.tf_sample_weights[:,0] )
-    u0 = float(u0) 
-    
-    utility.compile(optimizer        = optimzier, 
-                    loss             = utility_loss,
-                    run_eagerly      = run_eagerly)
-    
-    if not learning_rate is None:
-        gym.optimizer.lr = float( learning_rate )
-    
-    config.done()
-
-    if debug_numerics:
-        tf.debugging.enable_check_numerics()
-        if output_level != "quiet": print("Enabled automated checking for numerical errors. This will slow down training. Use config.debug.check_numerics = False to turn this off")
-    else:
-        tf.debugging.disable_check_numerics()
-    
-    why_stopped = "Training complete"
-    try:
-        uf = utility.fit(   
-                        x              = tf_data,
-                        y              = world.tf_y,
-                        batch_size     = batch_size,
-                        sample_weight  = world.tf_sample_weights * float(world.nSamples),  # sample_weights are poorly handled in TF
-                        epochs         = epochs,
-                        callbacks      = None,
-                        verbose        = tf_verbose )
-    except KeyboardInterrupt:
-        why_stopped = "Aborted"
-
-    ret  = utility( tf_data )
-    util = tf.reduce_sum( ret * world.tf_sample_weights[:,0] )
-    util = float(util)
-    return util, u0, uf
 
 
 

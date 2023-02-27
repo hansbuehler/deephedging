@@ -23,15 +23,28 @@ class Strip(object):
         
     @property
     def fd_delta(self):
-        """ First order derivative approximation of 'F'. Returns tuple x, delta """
+        """
+        First order derivative approximation of 'F'. Returns tuple x, delta
+        using https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2642630 page 31-32
+        """
         if len(self.X) < 3:
             return None, None
-        delta = ( self.F[2:] - self.F[:-2] ) / ( self.X[2:] - self.X[:-2] )
-        return self.X[1:-1], delta
+        x         = self.X
+        f         = self.F
+        dk_m      = x[1:-1] - x[0:-2]
+        dk_p      = x[2:]   - x[1:-1]
+        f_m       = f[:-2]
+        f_p       = f[2:]
+        f_0       = f[1:-1]
+        dF        = ( dk_m*dk_m*f_p + (dk_p*dk_p-dk_m*dk_m)*f_0 - dk_p*dk_p*f_m ) / ( (dk_p + dk_m)*dk_m*dk_p )
+        return self.X[1:-1], dF
 
     @property
     def fd_gamma(self):
-        """ Second order derivative approximation of 'F'. Returns tuple x, gamma """
+        """
+        Second order derivative approximation of 'F'. Returns tuple x, gamma
+        using https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2642630 page 31-32
+        """
         if len(self.X) < 3:
             return None, None
         ku     = self.X[2:]
@@ -52,10 +65,8 @@ class Strip(object):
         Returns delta computed using a 'dx' bump 
         A good nump size is vol*sqrt(dt)
         """
-        xup = spots+dx
-        xdn = spots-dx
-        fup = np.interp( xup, self.X, self.F )
-        fdn = np.interp( xdn, self.X, self.F )
+        fup = np.interp( spots+dx, self.X, self.F )
+        fdn = np.interp( spots-dx, self.X, self.F )
         delta = ( fup - fdn ) / ( 2.*dx )
         return delta
 
@@ -131,9 +142,12 @@ def bs_fd( *, spots : list, times : np.array, payoff, vol : float = 0.2, cn_fact
 
     """
     if isinstance( spots, np.ndarray ):
-        _log.verify( len(spots.shape) == 2, "'spots': if a numpy array is provied, it must have dimension 2. Found %ld", len(spots.shape) )
-        n = spots.shape[1]
-        spots = [ np_unique_tol( spots[:,t], tol=1E-8, is_sorted=False ) for t in range(n) ]
+        if len(spots.shape) == 1:
+            spots = [spots]*len(times)
+        else:
+            _log.verify( len(spots.shape) == 2, "'spots': if a numpy array is provied, it must have dimension 1 or 2. Found %ld dimensions", len(spots.shape) )
+            n     = spots.shape[1]
+            spots = [ np_unique_tol( spots[:,t], tol=1E-8, is_sorted=False ) for t in range(n) ]
     
     # basics
     nSteps   = len(spots)-1

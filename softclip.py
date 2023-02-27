@@ -60,8 +60,10 @@ class DHSoftClip(tf.keras.layers.Layer):
                 actions = tf.maximum( actions, lbnd_a*self.outer_clip_cut_off, name="outer_clip_max" )
 
             dbnd = ubnd_a - lbnd_a
+            actions  = tf.debugging.check_numerics(actions, "Numerical actions error before clipping action in %s. Turn on tf.enable_check_numerics to find the root cause. See softclip.py" % __file__ )
             rel  = ( actions - lbnd_a ) / dbnd
+            act  = tf.debugging.check_numerics(rel, "Numerical error before clipping action in %s. Turn on tf.enable_check_numerics to find the root cause. See softclip.py" % __file__ )
             rel  = self.softclip( rel )
             act  = tf.where( dbnd > 0., rel *  dbnd + lbnd_a, 0., name="soft_clipped_act" )
-            act  = tf.debugging.check_numerics(act, "Numerical error clipping action in %s. Turn on tf.enable_check_numerics to find the root cause. See trainer.py" % __file__ )
+            act  = tf.debugging.check_numerics(act, "Numerical error clipping action in %s. Turn on tf.enable_check_numerics to find the root cause. See softclip.py" % __file__ )
             return act
