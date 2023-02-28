@@ -15,7 +15,7 @@ from cdxbasics.logger import Logger
 from cdxbasics.prettydict import PrettyDict as PrettyDict
 from cdxbasics.util import uniqueHash
 from cdxbasics.subdir import SubDir, uniqueFileName48, CacheMode
-from deephedging.base import create_optimizer, npCast, tfCast
+from deephedging.base import create_optimizer, npCast, tfCast, fmt_now, fmt_seconds
 import tensorflow as tf
 import numpy as np
 import time as time
@@ -192,8 +192,8 @@ class Model(tf.keras.Model):
             self.optimizer.set_weights( opt_weights )
         except ValueError as v:
             isTF211 = getattr(self.optimizer,"get_weights",None) is None
-            isTF211 = "" if not isTF211 else "Code is running TensorFlow 2.11 or higher for which tf.keras.optimizers.Optimizer.get_weights() was retired. Current code is experimental. Review create_cache/restore_from_cache.\n"
-            _log.error( "Cache restoration error: cached optimizer weights were not compatible with existing optimizer.\n%s%s", v)
+            isTF211 = "" if not isTF211 else "\nCode is running TensorFlow 2.11 or higher for which tf.keras.optimizers.Optimizer.get_weights() was retired. Current code is experimental. Review create_cache/restore_from_cache."
+            _log.error( "Cache restoration error: cached optimizer weights were not compatible with existing optimizer.%s", isTF211)
             return False
         
         return True
@@ -658,8 +658,8 @@ class Callback(tf.keras.callbacks.Callback):
 
         # restore best weights
         # We do this *after* we stored the last cache
-        self.environment.model.set_best_weights( self.progress_data.best_weights )
-        self.verboe.write( "Status: %(status)s.\n"\
+        self.environment.model.set_weights( self.progress_data.best_weights )
+        self.verbose.write( "Status: %(status)s.\n"\
                            "Weights set to best epoch: %(best_epoch)ld\n"\
                            "%(cached_msg)s Time: %(time)s",\
                            status=status, 
@@ -803,12 +803,12 @@ def train(   environment    : Environment,
                             epochs         = epochs - (callback.current_epoch+1),
                             callbacks      = callback if tboard is None else [ callback, tboard ],
                             verbose        = tf_verbose )
-            callback.self.stop_reason = Callback.FINISHED_EPOCHS            
+            callback.stop_reason = Callback.FINISHED_EPOCHS            
         except KeyboardInterrupt:
-            callback.self.stop_reason = Callback.STOP_INTERRUPTED
+            callback.stop_reason = Callback.STOP_INTERRUPTED
 
-    callbacks.finalize()
-    verbose.write("Training completed. Total training took %lds", fmt_seconds(time.time()-t0))
-    environmnet.predict()
+    callback.finalize()
+    verbose.report(0, "Training completed. Total training took %s", fmt_seconds(time.time()-t0))
+    return environment.predict()
 
 
