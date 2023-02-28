@@ -54,7 +54,7 @@ DIM_DUMMY = "_dimension_dummy"
 def tfCast( x, native = True, dtype=None ):
     """
     Casts an object or a collection of objecyts iteratively into tensors.
-    Turns all custom dictionaries into dictionaries.
+    Turns all custom dictionaries (such as PrettyDict) into dictionaries unless 'native' is False.
     
     Parameters
     ----------
@@ -65,11 +65,11 @@ def tfCast( x, native = True, dtype=None ):
                 - atomic variables become tensor constants
         native : bool, optional
             True
-                - lists of x's becomes lists of tensors
-                - dicts of x's becomes dicts of tensors
+                - lists-types of x's becomes lists of tensors
+                - dicts-types of x's becomes dicts of tensors
             False:
-                - lists of x's becomes lists of npCast(x)'s
-                - dicts of x's becomes dicts of npCast(x)'s
+                - lists-types of x's stay list-types
+                - dicts-types of x's stay dict-types
                             
         dtype : tf.DType, optional
             Overwrite dtype
@@ -78,6 +78,8 @@ def tfCast( x, native = True, dtype=None ):
     -------
         tensors.
     """
+    if x is None:
+        return None
     if isinstance(x, tf.Tensor):
         return x if ( dtype is None or x.dtype == dtype ) else tf.convert_to_tensor( x, dtype=dtype )
     if isinstance(x, np.ndarray):
@@ -111,6 +113,7 @@ def npCast( x, dtype=None ):
                 - atomic variables become arrays with shape ()
                 - lists of x's becomes lists of npCast(x)'s
                 - dicts of x's becomes dicts of npCast(x)'s
+                - None returns None
             
         dtype : tf.DType, optional
             Overwrite dtype
@@ -119,6 +122,8 @@ def npCast( x, dtype=None ):
     -------
         numpys.
     """
+    if x is None:
+        return None
     if isinstance(x, tf.Tensor):
         return np.asarray( x, dtype=dtype )
     if isinstance(x, np.ndarray):
