@@ -68,7 +68,7 @@ class Model(tf.keras.Model):
         tf.keras.Model.__init__(self, name=name, dtype=dtype, trainable=trainable )
 
         if isinstance(cache_uid, Config):
-            self._cache_unique_id = cache_uid.unique_id
+            self._cache_unique_id = cache_uid.unique_id()
         elif isinstance(cache_uid, str):
             self._cache_unique_id = str( cache_uid )
         else:
@@ -144,7 +144,7 @@ class Model(tf.keras.Model):
                      opt_config    = opt_config,
                      opt_weights   = opt_weights )
                 
-    def cache_restore( self, cache ) -> bool:
+    def cache_restore( self, cache : dict, initial : bool ) -> bool:
         """
         Restore 'self' from cache.
         Note that we have to call() this object before being able to use this function        
@@ -180,6 +180,10 @@ class Model(tf.keras.Model):
             _log.warn( "Cache restoration error: provided cache gym weights were not compatible with the gym.\n%s", v)
             return False
 
+        # currrently, 
+        if initial:
+            return True
+        
         # optimizer
         optimizer   = getattr( self, "optimizer", None )
         if optimizer is None:
@@ -191,6 +195,8 @@ class Model(tf.keras.Model):
         try:
             self.optimizer.set_weights( opt_weights )
         except ValueError as v:
+            ex = optimizer.get_weights()
+            
             isTF211 = getattr(self.optimizer,"get_weights",None) is None
             isTF211 = "" if not isTF211 else "\nCode is running TensorFlow 2.11 or higher for which tf.keras.optimizers.Optimizer.get_weights() was retired. Current code is experimental. Review create_cache/restore_from_cache."
             _log.error( "Cache restoration error: cached optimizer weights were not compatible with existing optimizer.%s", isTF211)
@@ -436,6 +442,13 @@ class ProgressData(object):
         """
         return self.CONTINUE
     
+    def on_done(self,       environment    : Environment,  # model, tf_data, etc
+                            predicted_data : PrettyDict,   # current predicted training and validation data; current loss.
+                            training_info  : TrainingInfo, # number of epochs to be computed etc
+                        ):
+        """ Called when training is finished and the model was set to the best weights """
+        pass
+        
     # --------------------
     # Internal
     # --------------------
@@ -472,6 +485,12 @@ class ProgressData(object):
             self.besr_loss    = predicted_data.trn.loss
         
         return self.on_epoch_end( environment=environment, predicted_data=predicted_data, training_info=training_info, logs=logs )
+        
+    def _on_done(self,      environment    : Environment,  # model, tf_data, etc
+                            training_info  : TrainingInfo, # number of epochs to be computed etc
+                        ):
+        predicted_data = environment.predict()
+        self.on_done(  environment=environment, predicted_data=predicted_data, training_info=training_info )
         
 # ==========================================================================
 # Callback
@@ -543,9 +562,11 @@ class Callback(tf.keras.callbacks.Callback):
         self.cache_file       = uniqueFileName48( self.cache_id ) if len(self.cache_id) > 48 else self.cache_id
         self.cache_file       = self.cache_file if cache_file_name == "" else cache_file_name
         self.full_cache_file  = self.cache_dir.fullKeyName( self.cache_file )
+        self.cache_data       = None
         
         # restore cache
         # this might overwrite self.progress_data
+        self.cache_restore    = None
         if not self.cache_mode.is_off:
             verbose.report(0, "Caching enabled @ '%s'" % self.full_cache_file)
             if self.cache_mode.delete:
@@ -556,7 +577,8 @@ class Callback(tf.keras.callbacks.Callback):
                 if not cache is None:
                     # load everything except the gym 
                     # restore gym
-                    if not model.cache_restore( cache['model'] ):
+                    self.cache_data = cache['model']
+                    if not model.cache_restore( cache['model'], initial=True ):
                         if self.cache_mode.del_incomp:
                             self.cache_dir.delete( self.cache_file ) 
                             verbose.report(1, "Cache consistency error: could not write weights from cache '%s' to current model. This is most likely because the model architecture changed.\n"\
@@ -569,8 +591,8 @@ class Callback(tf.keras.callbacks.Callback):
                     else:
                         self.progress_data = cache['progress_data']
                         _log.verify( self.progress_data.current_epoch >= 0, "Error: object restored from cache had epoch set to %ld", self.progress_data.current_epoch )
-                        self.cache_last_epoch = self.progress_data.epoch
-                        verbose.report(1, "Cache successfully loaded. Current epoch: %ld" % (self.progress_data.epoch+1) )
+                        self.cache_last_epoch = self.progress_data.current_epoch
+                        verbose.report(1, "Cache successfully loaded. Current epoch: %ld" % (self.progress_data.current_epoch+1) )
 
         # initialize timing
         if self.progress_data.current_epoch+1 >= self.training_info.epochs:
@@ -583,7 +605,10 @@ class Callback(tf.keras.callbacks.Callback):
 
     def write_cache(self):
         """ Write cache to disk """
-        cache = { 'model':         self.model.cache_create(),
+        if not self.cache_data is None:
+            return # calibration was never invoked. Keep existing cache
+        
+        cache = { 'model':         self.environment.model.cache_create(),
                   'progress_data': self.progress_data
                 }            
         self.cache_dir.write( self.cache_file, cache )
@@ -602,6 +627,9 @@ class Callback(tf.keras.callbacks.Callback):
     @property
     def epochs(self):
         return self.training_info.epochs
+
+    def on_epoch_begin( self, loop_epoch, logs = None ):
+        pass
     
     def on_epoch_end( self, loop_epoch, logs = None ):
         """
@@ -609,6 +637,26 @@ class Callback(tf.keras.callbacks.Callback):
         Handle plotting, and caching
         Note that 'loop_epoch' is the epoch of the current training run. If the state was recovered from a cache, it won't be the logical epoch
         """
+
+        if not self.cache_data is None:
+            model = self.environment.model
+            if not model.cache_restore( self.cache_data, initial=False ):
+                if self.cache_mode.del_incomp:
+                    self.cache_dir.delete( self.cache_file ) 
+                    verbose.report(1, "Cache consistency error: could not write weights from cache '%s' to current model. This is most likely because the model architecture changed.\n"\
+                                      "The file was deleted because caching mode was '%s'",\
+                                      self.full_cache_file, self.cache_mode )
+                else:
+                    verbose.report(1, "Cache consistency error: could not write weights from cache '%s' to current model. This is most likely because the model architecture changed.\n"\
+                                      "Set caching model to '%s' to rebuild caches which are not compatible with the current code base. Use caching model '%s' to turn caching off.",\
+                                      self.full_cache_file, CacheMode.ON, CacheMode.OFF )
+            else:
+                self.progress_data = cache['progress_data']
+                _log.verify( self.progress_data.current_epoch >= 0, "Error: object restored from cache had epoch set to %ld", self.progress_data.current_epoch )
+                self.cache_last_epoch = self.progress_data.current_epoch
+                verbose.report(1, "Cache successfully loaded. Current epoch: %ld" % (self.progress_data.epoch+1) )
+            self.cache_data = None
+                
         time_now = time.time()
         _current = self.progress_data.current_epoch
         r = self.progress_data._on_epoch_end( environment   = self.environment,
@@ -659,6 +707,12 @@ class Callback(tf.keras.callbacks.Callback):
         # restore best weights
         # We do this *after* we stored the last cache
         self.environment.model.set_weights( self.progress_data.best_weights )
+
+        self.progress_data._on_done(  environment   = self.environment,
+                                      training_info = self.training_info )
+        """ Called when training is finished and the model was set to the best weights """
+        pass
+        
         self.verbose.write( "Status: %(status)s.\n"\
                            "Weights set to best epoch: %(best_epoch)ld\n"\
                            "%(cached_msg)s Time: %(time)s",\
@@ -701,11 +755,13 @@ def train(   environment    : Environment,
     Returns
     -------
         A PrettyDict which contains, computed at the best weights:
-            trn.result : numpy arrays of the training results from model(trn.tf_data)
-            trn.loss   : float of the training loss for the current model               
+            model         : trained model, set to best weights (according to training data)
+            progress_data : progress data, e.g. a version of ProgressData which contains at the very least the time series of losses, and the best weights
+            trn.result    : numpy arrays of the training results from model(trn.tf_data)
+            trn.loss      : float of the training loss for the current model               
         If val is not None:
-            val.result : numpy arrays of the validation results from model(val.tf_data)
-            val.loss   : float of the validation loss for the current model               
+            val.result    : numpy arrays of the validation results from model(val.tf_data)
+            val.loss      : float of the validation loss for the current model               
     """
     verbose.write("Training loop starting")
     t0  = time.time()
@@ -809,6 +865,11 @@ def train(   environment    : Environment,
 
     callback.finalize()
     verbose.report(0, "Training completed. Total training took %s", fmt_seconds(time.time()-t0))
-    return environment.predict()
+    result = environment.predict()
+    result.progress_data = callback.progress_data
+    result.model = model
+    return result
+
+
 
 
