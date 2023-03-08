@@ -49,7 +49,7 @@ class Model(tf.keras.Model):
                        name            : str = None,
                        dtype           : tf.DType = None,
                        trainable       : bool = True,
-                       cache_version   : str = ""):
+                       cache_version   : str = None):
         """
         Initializes the cachable model
         ------------------------------
@@ -73,7 +73,9 @@ class Model(tf.keras.Model):
             self._cache_unique_id = str( cache_uid )
         else:
             _log.throw("'config_ID' must be a 'str' or a 'Config'. Found type %s", type(cache_uid))
-                
+           
+        cache_version           = str(cache_version) if not cache_version is None else cache_version
+        if not cache_version is None: _log.verify( len(cache_version) > 0, "'cache_version' cannot be an empty string (or translate into one)")
         self._cache_version     = cache_version
         self._cache_ready       = False
         
@@ -125,7 +127,7 @@ class Model(tf.keras.Model):
     def cache_def_directory_name( self ):
         """ Returns a descriptive name for this class which can be used as directory for the caches """
         name = str( self.__class__.__name__ )
-        return name if self._cache_version is None else ( name + "_" + self._cache_version )
+        return name if self._cache_version is None else ( name + "/" + self._cache_version )
     
     def cache_create( self ) -> dict:
         """
@@ -577,7 +579,7 @@ class Callback(tf.keras.callbacks.Callback):
                 if not cache is None:
                     # load everything except the gym 
                     # restore gym
-                    self.cache_data = cache['model']
+                    self.cache_data = cache
                     if not model.cache_restore( cache['model'], initial=True ):
                         if self.cache_mode.del_incomp:
                             self.cache_dir.delete( self.cache_file ) 
@@ -640,23 +642,25 @@ class Callback(tf.keras.callbacks.Callback):
 
         if not self.cache_data is None:
             model = self.environment.model
-            if not model.cache_restore( self.cache_data, initial=False ):
+            if not model.cache_restore( self.cache_data['model'], initial=False ):
                 if self.cache_mode.del_incomp:
                     self.cache_dir.delete( self.cache_file ) 
-                    verbose.report(1, "Cache consistency error: could not write weights from cache '%s' to current model. This is most likely because the model architecture changed.\n"\
+                    self.verbose.report(1, "Cache consistency error: could not write weights from cache '%s' to current model. This is most likely because the model architecture changed.\n"\
                                       "The file was deleted because caching mode was '%s'",\
                                       self.full_cache_file, self.cache_mode )
                 else:
-                    verbose.report(1, "Cache consistency error: could not write weights from cache '%s' to current model. This is most likely because the model architecture changed.\n"\
+                    self.verbose.report(1, "Cache consistency error: could not write weights from cache '%s' to current model. This is most likely because the model architecture changed.\n"\
                                       "Set caching model to '%s' to rebuild caches which are not compatible with the current code base. Use caching model '%s' to turn caching off.",\
                                       self.full_cache_file, CacheMode.ON, CacheMode.OFF )
             else:
-                self.progress_data = cache['progress_data']
+                self.progress_data = self.cache_data['progress_data']
                 _log.verify( self.progress_data.current_epoch >= 0, "Error: object restored from cache had epoch set to %ld", self.progress_data.current_epoch )
                 self.cache_last_epoch = self.progress_data.current_epoch
-                verbose.report(1, "Cache successfully loaded. Current epoch: %ld" % (self.progress_data.epoch+1) )
+                self.verbose.report(1, "Optimizer state successfully loaded from cache. Current epoch: %ld" % (self.progress_data.current_epoch+1) )
             self.cache_data = None
-                
+            self.time_start = time.time()
+            return
+                    
         time_now = time.time()
         _current = self.progress_data.current_epoch
         r = self.progress_data._on_epoch_end( environment   = self.environment,
