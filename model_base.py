@@ -68,7 +68,7 @@ class Model(tf.keras.Model):
         tf.keras.Model.__init__(self, name=name, dtype=dtype, trainable=trainable )
 
         if isinstance(cache_uid, Config):
-            self._cache_unique_id = cache_uid.unique_id()
+            self._cache_unique_id = uniqueHash( [cache_uid.unique_id(), cache_version] )
         elif isinstance(cache_uid, str):
             self._cache_unique_id = str( cache_uid )
         else:
