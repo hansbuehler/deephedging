@@ -6,7 +6,7 @@ Training environment for deep hedging.
 June 30, 2022
 @author: hansbuehler
 """
-from .base import Logger, Config, tf, dh_dtype, pdct, tf_back_flatten, tf_make_dim, Int, Float, tfCast, create_optimizer
+from .base import Logger, Config, tf, dh_dtype, pdct, tf_back_flatten, tf_make_dim, Int, Float, tfCast, create_optimizer, TF_VERSION
 from .agents import AgentFactory
 from .objectives import MonetaryUtility
 from .softclip import DHSoftClip
@@ -323,12 +323,13 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         # rquire copying furhter variables
         id_config   = { k: opt_config[k] for k in opt_config if k != 'learning_rate' } if not opt_config is None else None
         opt_uid     = uniqueHash( id_config ) if not id_config is None else ""
+        opt_weights = self.optimizer.get_weights() if TF_VERSION <= 210 else [ w.value() for w in self.optimizer.variables() ]
         
         return dict( gym_uid       = self.unique_id,
                      gym_weights   = self.get_weights(),
                      opt_uid       = opt_uid,
                      opt_config    = opt_config,
-                     opt_weights   = self.optimizer.get_weights()
+                     opt_weights   = opt_weights
                    )
                 
     def restore_from_cache( self, cache ) -> bool:
