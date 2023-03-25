@@ -424,7 +424,7 @@ class SimpleWorld_Spot_ATM(object):
         # variables for visualization, but not available for the agent
         self.details = pdct(
             # mandatory (used by ploting)
-            spot_all     = spot,      # [nSamples,nSteps+1] spots including spot at T
+            spot_all     = spot[:,:nSteps+1],      # [nSamples,nSteps+1] spots including spot at T
             # per model 
             drift     = rdrift,   # drifts for each interval
             rvol      = rvol,     # realized vols for each interval
@@ -447,139 +447,6 @@ class SimpleWorld_Spot_ATM(object):
         self.dt        = dt
         self.timeline  = np.cumsum( np.linspace( 0., nSteps, nSteps+1, endpoint=True, dtype=np.float32 ) ) * dt
 
-        self.inst_names = [ 'spot' ]
-        if strike > 0.:
-            self.inst_names.append( "ATM Call" )
-        
-    def clone(self, config_overwrite = Config(), **kwargs ):
-        """
-        Create a copy of this world with the same config, except for the seed.
-        Used to generate genuine validation sets.
-        
-        Parameters
-        ----------
-            config_overwrite : Config, optional
-                Allows specifying additional overwrites of specific config values
-            **kwargs
-                Allows specifying additional overwrites of specific config values, e.g.
-                    world.clone( seed=222, samples=10 )
-                If seed is not specified, a random seed is generated.
-
-        Returns
-        -------
-            New world
-        """
-        if not 'seed' in kwargs:
-            kwargs['seed'] = int(np.random.randint(0,0x7FFFFFFF))
-        config = self.config.copy()
-        config.update( config_overwrite, **kwargs )        
-        return SimpleWorld_Spot_ATM( config )
-
-    def plot(self, config = Config(), **kwargs ):
-        """ Plot simple world """
-        
-        config.update(kwargs)
-        col_size     = config.fig("col_size", 5, int, "Figure column size")
-        row_size     = config.fig("row_size", 5, int, "Figure row size")
-        plot_samples = config("plot_samples", 5, int, "Number of samples to plot")
-        print_input  = config("print_input", True, bool, "Whether to print the config inputs for the world")
-        
-        xSamples  = np.linspace(0,self.nSamples,plot_samples,endpoint=False, dtype=int)
-        timeline1 = np.cumsum( np.linspace( 0., self.nSteps, self.nSteps+1, endpoint=True, dtype=np.float32 ) ) * self.dt
-        timeline  = timeline1[:-1]
-
-        print(self.config.usage_report())
-        
-        fig = figure(tight=True, col_size=col_size, row_size=row_size, col_nums=3 )
-        fig.suptitle(self.__class__.__name__, fontsize=16)
-        
-        # spot
-        ax  = fig.add_plot()
-        ax.set_title("Spot")
-        ax.set_xlabel("Time")
-        for i, color in zip( xSamples, colors_tableau() ):
-            ax.plot( timeline1, self.details.spot_all[i,:], "-", color=color )
-        ax.plot( timeline1, np.mean( self.details.spot_all, axis=0), "_", color="black", label="mean" )
-#        ax.get_xaxis().get_major_formatter().get_useOffset(False)
-        ax.legend()
-        
-        # drift
-        ax  = fig.add_plot()
-        ax.set_title("Drift")
-        ax.set_xlabel("Time")
-        for i, color in zip( xSamples, colors_tableau() ):
-            ax.plot( timeline, self.details.per_step.drift[i,:], "-", color=color )
-        ax.plot( timeline, np.mean( self.details.drift, axis=0), "_", color="black", label="mean" )
-        
-        # vols
-        ax  = fig.add_plot()
-        ax.set_title("Volatilities")
-        ax.set_xlabel("Time")
-        for i, color in zip( xSamples, colors_tableau() ):
-            ax.plot( timeline, self.data.features.per_step.ivol[i,:], "-", color=color )
-            ax.plot( timeline, self.details.rvol[i,:], ":", color=color )
-        
-        if self.nInst > 1:
-            # call prices
-            ax  = fig.add_plot(True)
-            ax.set_title("Call Prices")
-            ax.set_xlabel("Time")
-            for i, color in zip( xSamples, colors_tableau() ):
-                ax.plot( timeline, self.data.features.per_step.call_price[i,:], "-", color=color )
-            ax.plot( timeline, np.mean( self.data.features.per_step.call_price, axis=0), "_", color="black", label="mean" )
-            ax.legend()
-            
-            # call delta
-            ax  = fig.add_plot()
-            ax.set_title("Call Deltas")
-            ax.set_xlabel("Time")
-            for i, color in zip( xSamples, colors_tableau() ):
-                ax.plot( timeline, self.data.features.per_step.call_delta[i,:], "-", color=color )
-            ax.plot( timeline, np.mean( self.data.features.per_step.call_delta, axis=0), "_", color="black", label="mean" )
-            ax.legend()
-            
-            # call vega
-            ax  = fig.add_plot()
-            ax.set_title("Call Vegas")
-            ax.set_xlabel("Time")
-            for i, color in zip( xSamples, colors_tableau() ):
-                ax.plot( timeline, self.data.features.per_step.call_vega[i,:], "-", color=color )
-            ax.plot( timeline, np.mean( self.data.features.per_step.call_vega, axis=0), "_", color="black", label="mean" )
-            ax.legend()
-        
-        fig.render()
-        del fig        
-
-        if print_input:
-            print("Config settings:\n%s" % self.input_report)
-
-
-        # details
-        # variables for visualization, but not available for the agent
-        self.details = pdct(
-            # mandatory (used by ploting)
-            spot_all     = spot,      # [nSamples,nSteps+1] spots including spot at T
-            # per model 
-            drift     = rdrift,   # drifts for each interval
-            rvol      = rvol,     # realized vols for each interval
-            )
-
-        # check numerics
-        assert_iter_not_is_nan( self.details, "details" )
-        
-        # generating sample weights
-        # the tf_sample_weights is passed to keras train and must be of size [nSamples,1]
-        # https://stackoverflow.com/questions/60399983/how-to-create-and-use-weighted-metrics-in-keras
-        self.sample_weights = np.full((nSamples,1),1./float(nSamples))
-        self.tf_sample_weights \
-                       = tf.constant( self.sample_weights, dtype=self.np_dtype)   # must be of size [nSamples,1] https://stackoverflow.com/questions/60399983/how-to-create-and-use-weighted-metrics-in-keras
-        self.sample_weights = self.sample_weights.reshape((nSamples,))
-        self.tf_y      = tf.zeros((nSamples,), dtype=self.np_dtype)
-        self.nSteps    = nSteps
-        self.nSamples  = nSamples
-        self.nInst     = 1 if strike <= 0. else 2
-        self.dt        = dt
-        
         self.inst_names = [ 'spot' ]
         if strike > 0.:
             self.inst_names.append( "ATM Call" )
