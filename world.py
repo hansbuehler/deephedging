@@ -498,8 +498,8 @@ class SimpleWorld_Spot_ATM(object):
         ax.set_title("Spot")
         ax.set_xlabel("Time")
         for i, color in zip( xSamples, colors_tableau() ):
-            ax.plot( timeline1, self.details.per_step.spot1[i,:], "-", color=color )
-        ax.plot( timeline1, np.mean( self.details.per_step.spot1, axis=0), "_", color="black", label="mean" )
+            ax.plot( timeline1, self.details.spot_all[i,:], "-", color=color )
+        ax.plot( timeline1, np.mean( self.details.spot_all, axis=0), "_", color="black", label="mean" )
 #        ax.get_xaxis().get_major_formatter().get_useOffset(False)
         ax.legend()
         
@@ -509,7 +509,7 @@ class SimpleWorld_Spot_ATM(object):
         ax.set_xlabel("Time")
         for i, color in zip( xSamples, colors_tableau() ):
             ax.plot( timeline, self.details.per_step.drift[i,:], "-", color=color )
-        ax.plot( timeline, np.mean( self.details.per_step.drift, axis=0), "_", color="black", label="mean" )
+        ax.plot( timeline, np.mean( self.details.drift, axis=0), "_", color="black", label="mean" )
         
         # vols
         ax  = fig.add_plot()
@@ -517,7 +517,7 @@ class SimpleWorld_Spot_ATM(object):
         ax.set_xlabel("Time")
         for i, color in zip( xSamples, colors_tableau() ):
             ax.plot( timeline, self.data.features.per_step.ivol[i,:], "-", color=color )
-            ax.plot( timeline, self.details.per_step.rvol[i,:], ":", color=color )
+            ax.plot( timeline, self.details.rvol[i,:], ":", color=color )
         
         if self.nInst > 1:
             # call prices
@@ -631,8 +631,8 @@ class SimpleWorld_Spot_ATM(object):
         ax.set_title("Spot")
         ax.set_xlabel("Time")
         for i, color in zip( xSamples, colors_tableau() ):
-            ax.plot( timeline1, self.details.per_step.spot1[i,:], "-", color=color )
-        ax.plot( timeline1, np.mean( self.details.per_step.spot1, axis=0), "_", color="black", label="mean" )
+            ax.plot( timeline1, self.details.spot_all[i,:], "-", color=color )
+        ax.plot( timeline1, np.mean( self.details.spot_all, axis=0), "_", color="black", label="mean" )
 #        ax.get_xaxis().get_major_formatter().get_useOffset(False)
         ax.legend()
         
@@ -641,8 +641,8 @@ class SimpleWorld_Spot_ATM(object):
         ax.set_title("Drift")
         ax.set_xlabel("Time")
         for i, color in zip( xSamples, colors_tableau() ):
-            ax.plot( timeline, self.details.per_step.drift[i,:], "-", color=color )
-        ax.plot( timeline, np.mean( self.details.per_step.drift, axis=0), "_", color="black", label="mean" )
+            ax.plot( timeline, self.details.drift[i,:], "-", color=color )
+        ax.plot( timeline, np.mean( self.details.drift, axis=0), "_", color="black", label="mean" )
         
         # vols
         ax  = fig.add_plot()
@@ -650,7 +650,7 @@ class SimpleWorld_Spot_ATM(object):
         ax.set_xlabel("Time")
         for i, color in zip( xSamples, colors_tableau() ):
             ax.plot( timeline, self.data.features.per_step.ivol[i,:], "-", color=color )
-            ax.plot( timeline, self.details.per_step.rvol[i,:], ":", color=color )
+            ax.plot( timeline, self.details.rvol[i,:], ":", color=color )
         
         if self.nInst > 1:
             # call prices
