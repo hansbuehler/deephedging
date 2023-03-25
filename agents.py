@@ -34,36 +34,7 @@ class SimpleDenseAgent(tf.keras.layers.Layer):
         The agent's __call__ function will take in a dictionary of tenors of all feature avaialble,
         and returns the corresponding action for 'nInst' instruments, and any recurrrent states.
         
-        The generalized agent has the following form:
-        
-        h_{t-1} : previous hidden states. h_{-1} are learned independently.
-                  hidden states are split into continuus states with values in (-1,1) and digital states with values in {0,1}.
-                  We actually enforce this on the way in to avoid having to impose these restrictions on the external world
-                  Hence, let h^raw_{t-1} be the current past hidden raw state, then
-                     h^cont_{t-1}     = tanh( g_{t-1} )
-                     h^digitial_{t-1} = 1{ tanh( g_{t-1} ) > 0. }
-                     h_{t-1}          = (h^cont, h^digital)_{t-1}
-                     
-        f_t     : current feature vector. Includes a_{t-1}.
-        
-        a_t
-        c1_t = A(\theta; f_t, h_{t-1} where \theta are network weights
-        u_t 
-        
-        Types of recurrent states:
-        
-            continous:     h_t = h_{t-1} * sigmoid(c_t) + (1-sigmoid(c_t)) u_t
-        
-        
-        
-        c2_t = sigmoid( c_1 ) + 
-        
-        h_t = g_t * ( 
-        
-        
-        
-        
-        
+        See Network.md for a summary of the network definition provided by this file.
         
         Parameters
         ----------
@@ -90,11 +61,12 @@ class SimpleDenseAgent(tf.keras.layers.Layer):
         init_delta_features     = config.init_delta("features", [], list, "Named features for the agent to use for the initial delta network")
         init_delta              = config.init_delta("active", True, bool, "Whether or not to train in addition a delta layer for the first step")
 
-        self.classic_states     = config.recurrence.states("classic",   0, Int>=0, "Number of 'classic' recurrent states to be used. Such states may suffer from long term memory loss and gradient explosion")
+        self.classic_states     = config.recurrence.states("classic",   0, Int>=0, "Number of 'classic' recurrent states to be used. Such states may suffer from long term memory loss and gradient explosion. Classic states are constrained to (-1,+1)")
         self.aggregate_states   = config.recurrence.states("aggregate", 0, Int>=0, "Number of 'aggregate' states to be used. Such states capture in spirit exponentially weighted characteristics of the path")
         self.past_repr_states   = config.recurrence.states("past_repr", 0, Int>=0, "Number of 'past representation' states to be used. Such states capture data from past dates such as the spot value at the last reset date")
         self.event_states       = config.recurrence.states("event",     0, Int>=0, "Number of 'event' states to be used. Such states capture digital events such as a barrier breach")
         self.bound_aggr_states  = config.recurrence("bound_aggr_states", False, bool, "Whether or not to bound aggregate states to (-1,+1)")
+        self.sigmoid_1          = config.recurrence("sigmoid_1", False, bool, "Whether to use sigmoid function for digitial states (experimental)")
 
         self.nInst              = int(nInst)
         self.nUpdateUnits       = self.aggregate_states + self.past_repr_states + self.event_states 
@@ -145,6 +117,12 @@ class SimpleDenseAgent(tf.keras.layers.Layer):
         # recurrent mode
         # --------------
         
+        def unit(x):
+            if x is None:
+                return None
+            x = tf.math.sigmoid( x ) if self.sigmoid_1 else x
+            return tf.where( x > 0.5, 1. , 0. )
+        
         # impose limits on existing states 
         all_features    = dict(all_features)
         state           = all_features[self.State_Feature_Name]
@@ -180,7 +158,7 @@ class SimpleDenseAgent(tf.keras.layers.Layer):
         # classic is simple
         classic_state   = tf.math.tanh( classic_state ) if not classic_state is None else None
         aggregate_state = tf.math.tanh( aggregate_state) if not aggregate_state is None and self.bound_aggr_states else aggregate_state
-        event_state     = tf.where( event_state > 0.5, 1. , 0. ) if not event_state is None else None
+        event_state     = unit( event_state ) if not event_state is None else None
         
         # recompose
         state           = []
@@ -218,13 +196,13 @@ class SimpleDenseAgent(tf.keras.layers.Layer):
         # past_repr
         if not past_repr_state is None:
             candidate       = past_repr[0]
-            update          = tf.where( past_repr[1] > 0.5, 1., 0. )
+            update          = unit( past_repr[1] )
             past_repr_state = (1. - update) * past_repr_state + update * candidate
 
         # events
         if not event_state is None:
-            candidate       = tf.where( event[0] > 0.5, 1., 0. )
-            update          = tf.where( event[1] > 0.5, 1., 0. )
+            candidate       = unit( event[0] )
+            update          = unit( event[1] )
             event_state     = (1. - update) * event_state + update * candidate
 
         state           = []

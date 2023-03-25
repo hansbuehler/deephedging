@@ -7,7 +7,7 @@ June 30, 2022
 @author: hansbuehler
 """
 
-from .base import Logger, Config, tf, dh_dtype, tfCast, fmt_list, DIM_DUMMY
+from .base import Logger, Config, tf, dh_dtype, tfCast, fmt_list, DIM_DUMMY, perct_exp, fmt_list
 from .layers import DenseLayer, VariableLayer
 from cdxbasics import PrettyDict as pdct
 from collections.abc import Mapping
@@ -49,6 +49,8 @@ class MonetaryUtility(tf.keras.Model):
     Hans Buehler, June 2022
     """
     
+    UTILITIES = ['mean', 'exp', 'exp2', 'vicky', 'cvar', 'quad']
+    
     def __init__(self, config : Config, name : str = None, dtype : tf.DType = dh_dtype ):
         """
         Parameters
@@ -66,7 +68,7 @@ class MonetaryUtility(tf.keras.Model):
                 dtype
         """
         tf.keras.Model.__init__(self, name=name, dtype=dtype )
-        self.utility      = config("utility","exp2", ['mean', 'exp', 'exp2', 'vicky', 'cvar', 'quad'], help="Type of monetary utility")
+        self.utility      = config("utility","exp2", self.UTILITIES, help="Type of monetary utility")
         self.lmbda        = config("lmbda", 1., float, help="Risk aversion")
         self.display_name = self.utility + "@%g" % self.lmbda
         _log.verify( self.lmbda > 0., "'lmnda' must be positive. Use utility 'mean' for zero lambda")
@@ -136,7 +138,7 @@ class MonetaryUtility(tf.keras.Model):
         assert len(y.shape) == 2 and y.shape[1] == 1, "Internal error: expected variable to return a vector of shape [None,1]. Found %s" % y.shape.as_list()
         y      = y[:,0]
         #y     = tf.debugging.check_numerics(y, "Numerical error computing OCE_y in %s" % __file__ )
-        return utility(self.utility, self.lmbda, X, y=y )
+        return tf_utility(self.utility, self.lmbda, X, y=y )
         
     @property
     def features(self):
@@ -163,10 +165,6 @@ class MonetaryUtility(tf.keras.Model):
         text +=     "\n Features used:      %s" % fmt_list( self.y.features )
         return text
     
-    # -----------------------------------
-    # Analytical
-    # -----------------------------------
-    
     def compute_stateless_utility(self, payoff, sample_weights=None, **minimize_scalar_kwargs ) -> tf.Tensor:
         """
         Computes the utility of a payoff with classic optimization.
@@ -181,40 +179,17 @@ class MonetaryUtility(tf.keras.Model):
         Returns
         -------
             The utility value as a float.
-        """
-        
+        """        
         try:
             # trigger build(). This will fail if 'y' expects some features 
             _ = self.y(data={DIM_DUMMY:(payoff*0.)[:,np.newaxis]})
         except KeyError as k:
             _log.verify( self.nFeatures == 0, "Utility intercept 'y' relies on %ld features %s. Cannot compute simple initial utility. Use TensorFlow.", self.nFeatures,self.features )
+        return oce_utility( self.utilituy, self.lmbda, X=payoff, sample_weights=sample_weights )
 
-        payoff           = np.array( payoff )
-        np_dtype         = payoff.dtype
-        _log.verify( len(payoff.shape) == 1, "'payoff' must have shape of dimension 1. Found shape %s", payoff.shape )        
-        nSamples         = int( payoff.shape[0] )
-        sample_weights   = np.array( sample_weights, dtype=np_dtype ) if not sample_weights is None else np.full( (nSamples,), 1./float(nSamples), dtype=np_dtype )
-        sample_weights   = sample_weights[:,0] if not sample_weights is None and len(sample_weights.shape) == 2 and sample_weights.shape[1] == 1 else sample_weights
-        
-        _log.verify( payoff.shape == sample_weights.shape, "'payoff' must have same shape as 'sample_weights'. Found %s and %s, respectively", payoff.shape, sample_weights.shape )
-
-        payoff           = tf.convert_to_tensor(payoff)
-
-        def objective(y):
-            y = np.array(y, dtype=np_dtype)
-            r = utility(self.utility, self.lmbda, payoff, y=tf.convert_to_tensor(y) )
-            u = np.array( r.u, dtype=np_dtype )
-            u = np.sum( sample_weights * u )
-            return -u
-
-        _  = objective(0.)   # triggers errors if any
-        r  = minimize_scalar( objective, **minimize_scalar_kwargs )
-        if not r.success: _log.throw( "Failed to find optimal intercept 'y' for utility %s with risk aversion %g: %s", self.utility, self.lmbda, r.message )
-        return -r.x
-        
-        
+    
 @tf.function  
-def utility( utility : str, lmbda : float, X : tf.Tensor, y : tf.Tensor = 0. ) -> dict:
+def tf_utility( utility : str, lmbda : float, X : tf.Tensor, y : tf.Tensor = 0. ) -> dict:
     """
     Computes
         u(X+y) - y
@@ -258,14 +233,19 @@ def utility( utility : str, lmbda : float, X : tf.Tensor, y : tf.Tensor = 0. ) -
         #   u(x) = (1+lambda) min(0, x)
         # The resulting OCE measure U computes the expected value under the condition that X is below the p's percentile.
         #   U(X) = E[ X | X <= P^{-1}[ X<=* ](p)
+        # Here p is small to reflect risk-aversion, e.g p=5% means we are computing the mean over the five worst percentiles.
+        # Note that CVaR is often quoted with a survival percentile, e.g. q = 1-p e.g. 95%
         #
-        # Conversion from percentile p (e.g. 95%):
-        #   1+lambda = 1/(1-p) 
-        # and
-        #   lambda = p / (1-p)
+        # Conversion from percentile p (e.g. 5%) 
+        #   1+lambda = 1/p 
+        # =>
+        #   lambda = 1/p - 1
+        #
+        # Conversion from lambda to percentile
+        #   p = 1/(1+lambda)
         #
         # In other words, for p=50% use 1. (as in https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3120710)
-        #                 for p=95% use 19.
+        #                 for p=5%  use 19.
         
         u = (1.+lmbda) * tf.math.minimum( 0., gains ) - y
         d = tf.where( gains < 0., -(1.+lmbda), 0. )
@@ -273,14 +253,15 @@ def utility( utility : str, lmbda : float, X : tf.Tensor, y : tf.Tensor = 0. ) -
     elif utility == "quad":
         # quadratic penalty; flat extrapolation
         #
-        # u(x)  = -0.5 lambda * ( gains - x0 )^2 + 0.5 * x0^2;   u(0)  = 0
-        # u'(x) = - lambda (gains-x0);                           u'(1) = lambda x0 => x0 = 1/lmbda            
+        # u(x)  = -0.5 lambda * ( x - x0 )^2 + 0.5 * lmbda * x0^2;   u(0)  = 0
+        # u'(x) = - lambda (x-x0);                                   u'(0) = 1 = lambda x0 => x0 = 1/lmbda            
         
-        x0 = 1./lmbda            
-        u  = tf.where( gains < x0, - 0.5 * lmbda * ( ( gains - x0 ) ** 2 ), 0. ) + 0.5 * (x0**2) - y
-        d  = tf.where( gains < x0, - lmbda * (gains - x0), 0. ) 
+        x0 = 1./lmbda
+        xx = tf.minimum( 0., gains-x0 )
+        u  = - 0.5 * lmbda * (xx**2) + 0.5 * lmbda * (x0**2) - y
+        d  = - lmbda * xx
                 
-    elif utility in ["exp", "entropy"]:
+    elif utility in ["exp", "entropy"]: 
         # Entropy
         #   u(x) = { 1 - exp(- lambda x ) } / lambda 
         #
@@ -320,7 +301,7 @@ def utility( utility : str, lmbda : float, X : tf.Tensor, y : tf.Tensor = 0. ) -
         u = (1. + lmbda * gains - tf.math.sqrt( 1. + (lmbda * gains) ** 2 )) / lmbda  - y
         d = 1 - lmbda * gains / tf.math.sqrt( 1. + (lmbda * gains) ** 2)
         
-    _log.verify( not u is None, "Unknown utility function '%s'", utility )      
+    _log.verify( not u is None, "Unknown utility function '%s'. Use one of %s", utility, fmt_list( MonetaryUtility.UTILITIES )  )
     
     u = tf.debugging.check_numerics(u, "Numerical error computing u in %s. Turn on tf.enable_check_numerics to find the root cause.\nX: %s\ny : %s" % (__file__, str(X), str(y)) )
     d = tf.debugging.check_numerics(d, "Numerical error computing d in %s. Turn on tf.enable_check_numerics to find the root cause.\nX: %s\ny : %s" % (__file__, str(X), str(y)) )
@@ -330,9 +311,143 @@ def utility( utility : str, lmbda : float, X : tf.Tensor, y : tf.Tensor = 0. ) -
             d = d
         )
     
-
+# -------------------------------------------------------------------------
+# Mini OCE solver
+# -------------------------------------------------------------------------
     
-  
+class _Objective( tf.keras.Model ):
+    
+    def __init__(self, utility, lmbda, init = 0. ):
+        tf.keras.Model.__init__(self)
+        self.utility = utility
+        self.lmbda   = lmbda
+        self.y       = tf.Variable(init, dtype=dh_dtype)
+        
+    def call(self, data, training=False):
+        assert len(data.shape) == 1, "'data' must be a vector, found shape %s" % (data.shape.as_list())
+        return -tf_utility( self.utility, self.lmbda, X=data, y=self.y ).u
 
+
+def _default_loss( y_true,y_pred ):     
+    """ Default loss: ignore y_true """
+    return y_pred
+
+def oce_utility( utility : str, lmbda : float, X : np.ndarray, sample_weights : np.ndarray = None, method : str = None, epochs : int = 100, batch_size : int = 'all', **minimize_scalar_kwargs ) -> float:
+    """
+    Stand-alone OCE utility calculation, using analytical solutions where possible or a numerical 
+    
+    Parameters
+    ----------
+        utility:
+            Name of the utility function, see MonetaryUtility.UTILITIES
+        lmbda:
+            Risk aversion
+        X:
+            Variable to compute utility for
+        sample_weights:
+            Sammple weights or None for 1/n
+        method:
+            None for best,
+            'minscalar' for numerical minimization
+            'tf' for tensorflow
+        epochs, batch_size:
+            For tensorflow mode.
+            Use batch_size='all' for full batch size, None for 32 or a specific number
+        minimize_scalar_kwargs:
+            Arguments for 'minscalar'
+            
+    Returns
+    -------
+        Result
+    """
+    
+    lmbda          = float(lmbda)
+    X              = np.asarray(X)
+    sample_weights = np.asarray(sample_weights) if not sample_weights is None else None
+
+    _log.verify( len(X.shape) == 1, "'X' must be a vector, found shape %s", X.shape)
+
+    if not sample_weights is None:
+        _log.verify( sample_weights.shape[0] == len(X), "'sample_weights' first dimension must be %ld, not %ld", len(X), sample_weights.shape[0] )
+        if len(sample_weights.shape) == 2:
+            _log.verify( sample_weights.shape[1] == 1, "'sample_weights' second dimension must be 1, not %ld", sample_weights.shape[1] )
+        else:
+            _log.verify( len(sample_weights.shape) == 1, "'sample_weights' must be vector of length %ld. Found shape %ld", len(X), sample_weights.shape )
+            sample_weights = sample_weights[:,np.newaxis]
+        sample_weights   /= np.sum( sample_weights )
+    
+    # analytical?
+    # -----------
+
+    if method is None:
+        P = sample_weights[:,0] if not sample_weights is None else None
         
+        if utility in ["mean", "expectation"] or lmbda == 0.:
+            return np.sum(P * X) if not P is None else np.mean(X)
         
+        if utility in ["exp", "entropy"]:
+            expX = np.exp( - lmbda * X )
+            eexp = np.sum( P * expX ) if not P is None else np.mean( expX )
+            return - np.log( eexp ) / lmbda
+
+        if utility == "cvar":
+            p         = 1./(1. + lmbda)
+            assert p>0. and p<=1., "Invalid percentile %g" % p
+            if abs(1.-p)<1E-8:
+                return np.sum(sample_weigths * X) if not sample_weigths is None else np.mean(X)
+
+            if sample_weights is None:
+                pcnt     = np.percentile( X, p*100. )
+                ixs      = X <= pcnt
+                return np.mean( X[ixs] )
+
+            ixs       = np.argsort(X)
+            X         = X[ixs]
+            P         = P[ixs]
+            cumP      = np.cumsum(P)
+            assert abs(cumP[-1]-1.)<1E-4, "Internal error: cumsum(P)[-1]-1 = %g" % (cumP[-1]-1.)
+            cumP[-1]  = 1.
+            if p <= cumP[0]:
+                return X[0]
+            ix        = np.searchsorted( cumP, p )
+            ix        = max( 0., min( len(X)-1, ix ))
+            return np.sum( (P * X)[:ix+1] ) / np.sum( P[:ix+1] )
+        
+    # minimize_scalar
+    # ---------------
+    
+    if method is None or method == 'minscalar':
+        X = tfCast(X, dtype=dh_dtype)
+        def objective(y):
+            y = np.asarray(y)
+            y = tfCast(y, dtype=dh_dtype)
+            r = tf_utility(utility, lmbda, X, y=y )
+            u = np.asarray( r.u )
+            u = np.sum( sample_weights[:,0] * u ) if not sample_weights is None else np.mean(u)
+            return -u
+
+        _  = objective(0.)   # triggers errors if any
+        r  = minimize_scalar( objective, tol=1E-6, **minimize_scalar_kwargs )
+        if not r.success: _log.error( "Failed to find optimal intercept 'y' for utility %s with risk aversion %g: %s", utility, lmbda, r.message )
+        return -objective(r.x)
+
+    # tensorflow
+    # ----------
+
+    _log.verify( method == 'tf', "'method' must be None, 'minscalar', or 'tf'. Found %s", method )
+    
+    batch_size     = len(X) if batch_size == 'all' else batch_size
+    epochs         = int(epochs)
+    X              = tfCast(X, dtype=dh_dtype)
+    sample_weights = tfCast(sample_weights, dtype=dh_dtype) if not sample_weights is None else None
+
+    model = _Objective( utility, lmbda, np.mean(X) )
+    model.compile( optimizer = "adam", loss=_default_loss )
+    model.fit(  x              = X,
+                y              = X*0.,
+                batch_size     = batch_size,
+                sample_weight  = sample_weights * float(len(X)) if not sample_weights is None else None,  # sample_weights are poorly handled in TF
+                epochs         = epochs,
+                verbose = 0)
+
+    return -np.mean(model(X))

@@ -461,7 +461,7 @@ class Plotter(object):
     Add new plots here.
     """
     
-    def __init__(self, plot_graphs : bool, config : Config):
+    def __init__(self, world, val_world, plot_graphs : bool, config : Config):
         """
         Initialize Plooter
 
@@ -471,7 +471,9 @@ class Plotter(object):
             config : Config
                 Configuration
         """
-        self.fig = None
+        self.fig              = None
+        self.world            = world
+        self.val_world        = val_world
         self.plot_graphs      = plot_graphs
         self.epoch_refresh    = config("epoch_refresh", 10, Int>0, "Epoch fefresh frequency for visualizations" )        
         self.fig_row_size     = config.fig("row_size", 5, Int>0, "Plot size of a row")
@@ -495,12 +497,14 @@ class Plotter(object):
             self.fig.close()
             self.fig = None
 
-    def __call__(self, *, world, val_world, last_cached_epoch, progress_data, training_info ):
+    def __call__(self, *, last_cached_epoch, progress_data, training_info ):
         """ 
         Update our plots
         Create figures and subplots if not done so before
         """
         assert progress_data.epoch >= 0, "Do not call me before the first epoch"
+        world     = self.world
+        val_world = self.val_world
         
         if self.plot_graphs:
             update_plots = progress_data.epoch == 0 or ((progress_data.epoch+1) % self.epoch_refresh == 0)

@@ -54,7 +54,7 @@ DIM_DUMMY = "_dimension_dummy"
 def tfCast( x, native = True, dtype=None ):
     """
     Casts an object or a collection of objecyts iteratively into tensors.
-    Turns all custom dictionaries into dictionaries.
+    Turns all custom dictionaries (such as PrettyDict) into dictionaries unless 'native' is False.
     
     Parameters
     ----------
@@ -65,11 +65,11 @@ def tfCast( x, native = True, dtype=None ):
                 - atomic variables become tensor constants
         native : bool, optional
             True
-                - lists of x's becomes lists of tensors
-                - dicts of x's becomes dicts of tensors
+                - lists-types of x's becomes lists of tensors
+                - dicts-types of x's becomes dicts of tensors
             False:
-                - lists of x's becomes lists of npCast(x)'s
-                - dicts of x's becomes dicts of npCast(x)'s
+                - lists-types of x's stay list-types
+                - dicts-types of x's stay dict-types
                             
         dtype : tf.DType, optional
             Overwrite dtype
@@ -78,6 +78,8 @@ def tfCast( x, native = True, dtype=None ):
     -------
         tensors.
     """
+    if x is None:
+        return None
     if isinstance(x, tf.Tensor):
         return x if ( dtype is None or x.dtype == dtype ) else tf.convert_to_tensor( x, dtype=dtype )
     if isinstance(x, np.ndarray):
@@ -111,6 +113,7 @@ def npCast( x, dtype=None ):
                 - atomic variables become arrays with shape ()
                 - lists of x's becomes lists of npCast(x)'s
                 - dicts of x's becomes dicts of npCast(x)'s
+                - None returns None
             
         dtype : tf.DType, optional
             Overwrite dtype
@@ -119,6 +122,8 @@ def npCast( x, dtype=None ):
     -------
         numpys.
     """
+    if x is None:
+        return None
     if isinstance(x, tf.Tensor):
         return np.asarray( x, dtype=dtype )
     if isinstance(x, np.ndarray):
@@ -197,6 +202,21 @@ def tf_make_dim( tensor : tf.Tensor, dim : int ) -> tf.Tensor:
         return tensor
     except AttributeError as e:
         _log.throw( "Error converting tensor to dimension %ld: %s\nTensor is %s of type %s", dim, e, str(tensor), type(tensor) )
+
+# -------------------------------------------------
+# Remove near-identifical elements from numpy array
+# -------------------------------------------------
+
+def np_unique_tol( x : np.ndarray, tol : float = 1E-8, is_sorted : bool = False ) -> np.ndarray:
+    """ Returns the sorted elements of 'x' which are at least 'tol' distant from each other """
+    x        = np.sort(x) if not is_sorted else np.asarray(x)
+    dx       = x[ 1:] - x[:-1]
+    ixs      = np.full((len(x),), True, dtype=np.bool_)
+    ixs[:-1] = dx > tol
+    x        = x[ixs]
+    assert len(x) > 0, "Operation failed: all indices removed?"
+    if len(x) > 1: assert np.min( x[1:] - x[:-1] )>=tol/2., ( "Operation failed. Please debug. ", x )
+    return x
 
 # -------------------------------------------------
 # Basic arithmetics for non-uniform distributions
@@ -324,9 +344,18 @@ def perct_exp( x : np.ndarray, lo : float, hi : float, weights : np.ndarray = No
     """
     Compute the expectation over a percentile i.e. it will sort x and then compute np.mean( x[:len*lo] ) and np.mean( x[hi*len:] ).
     If a matrix instead of vector is given it will assume that the first dim is the sample dimension.
-    
-    If x is a vector, the function returns a 2-dimensional vector.
-    If x is a matrix of second dimension n2, then the function returns a matrix of dimension [2,n2].
+        
+    Parameters
+    ----------
+        x  : array
+        lo : lower percentile [0,1]
+        hi : higher percentile [0,1]
+        weights: sample weights or 1/n
+        
+    Returns
+    -------
+        If x is a vector, the function returns a 2-dimensional vector.
+        If x is a matrix of second dimension n2, then the function returns a matrix of dimension [2,n2].
     """    
     lo   = float(lo)
     hi   = float(hi)
@@ -387,15 +416,15 @@ def fmt_big_number( number : int ) -> str:
     """ Return a nicely formatted big number string """
     if number >= 10**10:
         number = number//(10**9)
-        number = float(number) / 1000.
+        number = round(number,2)
         return "%gG" % number
     if number >= 10**7:
         number = number//(10**6)
-        number = float(number) / 1000.
+        number = round(number,2)
         return "%gM" % number
     if number >= 10**4:
-        number = number//(10**3)
-        number = float(number) / 1000.
+        number = number/(10**3)
+        number = round(number,2)
         return "%gK" % number
     return str(number)
 
