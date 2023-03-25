@@ -185,7 +185,7 @@ class MonetaryUtility(tf.keras.Model):
             _ = self.y(data={DIM_DUMMY:(payoff*0.)[:,np.newaxis]})
         except KeyError as k:
             _log.verify( self.nFeatures == 0, "Utility intercept 'y' relies on %ld features %s. Cannot compute simple initial utility. Use TensorFlow.", self.nFeatures,self.features )
-        return oce_utility( self.utilituy, self.lmbda, X=payoff, sample_weights=sample_weights )
+        return oce_utility( self.utility, self.lmbda, X=payoff, sample_weights=sample_weights )
 
     
 @tf.function  
