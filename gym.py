@@ -6,7 +6,7 @@ Training environment for deep hedging.
 June 30, 2022
 @author: hansbuehler
 """
-from .base import Logger, Config, tf, dh_dtype, pdct, tf_back_flatten, tf_make_dim, Int, Float, tfCast, create_optimizer, TF_VERSION
+from .base import Logger, Config, tf, dh_dtype, pdct, tf_make_dim, Int, Float, tfCast, create_optimizer, TF_VERSION
 from .agents import AgentFactory
 from .objectives import MonetaryUtility
 from .softclip import DHSoftClip
