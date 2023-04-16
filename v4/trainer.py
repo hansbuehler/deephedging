@@ -23,10 +23,10 @@ import os as os
 
 from packages.cdx_tf.cdx_tf.util import tf, npCast, tfCast, TF_VERSION, def_dtype
 from packages.cdx_tf.cdx_tf.gym import ProgressData, Environment, TrainingInfo, train as cdx_train, Status
-from packages.cdx_tf.cdx_tf.layers import DenseAgent, RecurrentAgent
+from packages.cdx_tf.cdx_tf.models import DenseAgent, RecurrentAgent
 from packages.cdx_tf.cdx_tf.clip import SoftClip
 from packages.cdx_tf.cdx_tf.monetary_utility import MonetaryUtility
-from .gym2 import VanillaDeepHedgingGym
+from .gym import VanillaDeepHedgingGym
 
 _log = Logger(__file__)
 
@@ -95,29 +95,14 @@ class TrainingProgressData(ProgressData):
 
         return Status.CONTINUE
 
-    """
-    def on_epoch_end_update( self, environment    : Environment,    # gym, tf_data, etc
-                                   training_info  : TrainingInfo ): # number of epochs to be computed etc)
-        status_message = self.status_message( environment=environment, training_info=training_info )
-        environment.verbose.report(0, status_message)
-
-    def on_done( self,      environment    : Environment,  # gym, tf_data, etc
-                            predicted_data : PrettyDict,   # current predicted training and validation data; current loss.
-                            training_info  : TrainingInfo, # number of epochs to be computed etc
-                            stop_reason    : Status    # why training stopped
-                        ):
-        status_message = self.done_message( environment=environment, training_info=training_info, stop_reason=stop_reason )
-        environment.verbose.report(0, status_message)
-    """
-
 # =========================================================================================
 # Main training loop
 # =========================================================================================
 
-def train2( world,
+def train(  world,
             val_world,
-            config  : Config = Config(),
-            verbose : Context = Context(verbose="all") ):
+            config  : Config  = Config(),
+            verbose : Context = Context("all") ):
     """
     Train our deep hedging model with with the provided world.
     Main training loop.
@@ -142,10 +127,6 @@ def train2( world,
             val.result   : numpy arrays of the validation results from gym(val.tf_data) in the best point
             val.loss     : float of the validation loss for the current gym
             val.loss_err : float of the standard error of the validation loss (e.g. std/sqrt(n))
-
-    The current training loop set up is a bit messy between managing user feedback, and also allowing to cache results
-    to support warm starting. Will at some point redesign this architecture to create cleaner delineation of data, caching,
-    and visualization (at the very least to support multi-processing training)
     """
 
     env = Environment(

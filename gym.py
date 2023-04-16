@@ -6,7 +6,7 @@ Training environment for deep hedging.
 June 30, 2022
 @author: hansbuehler
 """
-from .base import Logger, Config, tf, dh_dtype, pdct, tf_back_flatten, tf_make_dim, Int, Float, tfCast, create_optimizer, TF_VERSION
+from .base import Logger, Config, tf, dh_dtype, pdct, tf_make_dim, Int, Float, tfCast, create_optimizer, TF_VERSION
 from .agents import AgentFactory
 from .objectives import MonetaryUtility
 from .softclip import DHSoftClip
@@ -17,12 +17,12 @@ import numpy as np
 _log = Logger(__file__)
 
 class VanillaDeepHedgingGym(tf.keras.Model):
-    """ 
-    Vanilla periodic policy search Deep Hedging engine https://arxiv.org/abs/1802.03042 
+    """
+    Vanilla periodic policy search Deep Hedging engine https://arxiv.org/abs/1802.03042
     Vewrsion 2.0 supports recursive and iterative networks
     Hans Buehler, June 2022
     """
-    
+
     def __init__(self, config : Config, name : str = "VanillaDeepHedging", dtype = dh_dtype ):
         """
         Deep Hedging Gym.
@@ -30,8 +30,8 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         This is done because the gym will know first the number of instruemnt.
         An alternative design would be to pass the agent as parameter but then
         validate that it has the correct number of instruments.
-        
-        Parameters 07ed683a03a89d54ff28a6385bfd0d48
+
+        Parameters
         ----------
             config : Config
                 Sets up the gym, and instantiates the agent
@@ -56,29 +56,29 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         self.utility0              = None
         self.unique_id             = config.unique_id()  # for serialization
         config.done()
-        
+
         if not seed is None:
             tf.random.set_seed( seed )
 
     # -------------------
     # keras model pattern
     # -------------------
-            
+
     def build(self, shapes : dict ):
         """ Build the model. See call(). """
         assert self.agent is None, "build() called twice?"
         _log.verify( isinstance(shapes, Mapping), "'shapes' must be a dictionary type. Found type %s", type(shapes ))
 
         nInst         = int( shapes['market']['hedges'][2] )
-        self.agent    = AgentFactory( nInst, self.config_agent, name="agent",    dtype=self.dtype ) 
-        self.utility  = MonetaryUtility( self.config_objective, name="utility",  dtype=self.dtype ) 
-        self.utility0 = MonetaryUtility( self.config_objective, name="utility0", dtype=self.dtype ) 
+        self.agent    = AgentFactory( nInst, self.config_agent, name="agent",    dtype=self.dtype )
+        self.utility  = MonetaryUtility( self.config_objective, name="utility",  dtype=self.dtype )
+        self.utility0 = MonetaryUtility( self.config_objective, name="utility0", dtype=self.dtype )
 
     def call( self, data : dict, training : bool = False ) -> dict:
         """
         Gym track.
         This function expects specific information in the dictionary data; see below
-        
+
         Parameters
         ----------
             data : dict
@@ -89,13 +89,13 @@ class VanillaDeepHedgingGym(tf.keras.Model):
                     market, cost:               (,M,N) proportional cost for trading, per step, per instrument
                     market, ubnd_a and lbnd_a : (,M,N) min max action, per step, per instrument
                     market, payoff:             (,M) terminal payoff of the underlying portfolio
-                    
+
                     features, per_step:       (,M,N) list of features per step
                     features, per_sample:     (,M) list of features for each sample
-                    
+
             training : bool, optional
                 See tensorflow documentation
-        
+
         Returns
         -------
             dict:
@@ -104,20 +104,20 @@ class VanillaDeepHedgingGym(tf.keras.Model):
                 utility:         (,) primary objective to maximize
                 utility0:        (,) objective without hedging
                 loss:            (,) -utility-utility0
-                payoff:          (,) terminal payoff 
+                payoff:          (,) terminal payoff
                 pnl:             (,) mid-price pnl of trading (e.g. ex cost)
                 cost:            (,) cost of trading
-                gains:           (,) total gains: payoff + pnl - cost 
+                gains:           (,) total gains: payoff + pnl - cost
                 actions:         (,M,N) actions, per step, per path
                 deltas:          (,M,N) deltas, per step, per path
         """
         return self._call( tfCast(data), training )
-    @tf.function  
+    @tf.function
     def _call( self, data : dict, training : bool ) -> dict:
         """ The _call function was introduced to allow conversion of numpy arrays into tensors ahead of tf.function tracing """
         _log.verify( isinstance(data, Mapping), "'data' must be a dictionary type. Found type %s", type(data ))
         assert not self.agent is None and not self.utility is None, "build() not called"
-        
+
         # geometry
         # --------
         hedges       = data['market']['hedges']
@@ -126,24 +126,24 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         nBatch       = hedge_shape[0]    # is None at first call. Later will be batch size
         nSteps       = hedge_shape[1]
         nInst        = hedge_shape[2]
-        
+
         # extract market data
         # --------------------
         trading_cost = data['market']['cost']
         ubnd_a       = data['market']['ubnd_a']
         lbnd_a       = data['market']['lbnd_a']
         payoff       = data['market']['payoff']
-        payoff       = payoff[:,0] if payoff.shape.as_list() == [nBatch,1] else payoff # handle tf<=2.6        
+        payoff       = payoff[:,0] if payoff.shape.as_list() == [nBatch,1] else payoff # handle tf<=2.6
         _log.verify( trading_cost.shape.as_list() == [nBatch, nSteps, nInst], "data['market']['cost']: expected shape %s, found %s", [nBatch, nSteps, nInst], trading_cost.shape.as_list() )
         _log.verify( ubnd_a.shape.as_list() == [nBatch, nSteps, nInst], "data['market']['ubnd_a']: expected shape %s, found %s", [nBatch, nSteps, nInst], ubnd_a.shape.as_list() )
         _log.verify( lbnd_a.shape.as_list() == [nBatch, nSteps, nInst], "data['market']['lbnd_a']: expected shape %s, found %s", [nBatch, nSteps, nInst], lbnd_a.shape.as_list() )
         _log.verify( payoff.shape.as_list() == [nBatch], "data['market']['payoff']: expected shape %s, found %s", [nBatch], payoff.shape.as_list() )
-        
+
         # features
         # --------
         features_per_step, \
         features_per_path = self._features( data, nSteps )
-            
+
         # main loop
         # ---------
         # V2.0 now supports
@@ -164,12 +164,12 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         action  = tf.zeros_like(trading_cost[:,0,:], dtype=dh_dtype)                                          # [?,nInst]
         actions = tf.zeros_like(trading_cost[:,0,:][:,tf.newaxis,:], dtype=dh_dtype)                          # [?,0,nInst]
         state   = self.agent.initial_state( features_time_0, training=training ) if self.agent.is_recurrent else tf.zeros_like(pnl, dtype=dh_dtype)  # [?,nStates] if states are used else [?]
-        idelta  = self.agent.initial_delta( features_time_0, training=training ) if self.agent.has_initial_delta else tf.zeros_like(delta, dtype=dh_dtype)  # [?,nInst] 
-        
+        idelta  = self.agent.initial_delta( features_time_0, training=training ) if self.agent.has_initial_delta else tf.zeros_like(delta, dtype=dh_dtype)  # [?,nInst]
+
         t       = 0
         while tf.less(t,nSteps, name="main_loop"): # logically equivalent to: for t in range(nSteps):
             tf.autograph.experimental.set_loop_options( shape_invariants=[(actions, tf.TensorShape([None,None,nInst]))] )
-            
+
             # 1: build features, including recurrent state
             live_features = dict( action=action, delta=delta, cost=cost, pnl=pnl )
             live_features.update( { f:features_per_path[f] for f in features_per_path } )
@@ -199,18 +199,18 @@ class VanillaDeepHedgingGym(tf.keras.Model):
 
         # compute utility
         # ---------------
-        
+
         utility           = self.utility( data=dict(features_time_0 = features_time_0,
-                                                    payoff          = payoff, 
+                                                    payoff          = payoff,
                                                     pnl             = pnl,
                                                     cost            = cost ), training=training )
         utility0          = self.utility0(data=dict(features_time_0 = features_time_0,
-                                                    payoff          = payoff, 
+                                                    payoff          = payoff,
                                                     pnl             = pnl*0.,
                                                     cost            = cost*0.), training=training )
         # prepare output
         # --------------
-            
+
         return pdct(
             loss     = -utility-utility0,                         # [?,]
             utility  = tf.stop_gradient( utility ),               # [?,]
@@ -221,21 +221,21 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             cost     = tf.stop_gradient( cost ),                  # [?,]
             actions  = tf.concat( actions, axis=1, name="actions" ) # [?,nSteps,nInst]
         )
-    
+
     # -------------------
     # internal
     # -------------------
 
     @staticmethod
     def _features( data : dict, nSteps : int = None ) -> (dict, dict):
-        """ 
-        Collect requested features and convert them into common shapes.   
-        
+        """
+        Collect requested features and convert them into common shapes.
+
         Parameters
         ----------
             data: essentially world.tf_data
             nSteps: for validation. Can be left None to ignore.
-        
+
         Returns
         -------
             features_per_step, features_per_path : (dict, dict)
@@ -259,7 +259,7 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         for f in features_per_path_i:
             feature = features_per_path_i[f]
             assert isinstance(feature, tf.Tensor), "Internal error: type %s found" % feature.__class__.__name__
-            features_per_path[f] = tf_make_dim( feature, dim=2 ) 
+            features_per_path[f] = tf_make_dim( feature, dim=2 )
         return features_per_step, features_per_path
 
     # -------------------
@@ -272,13 +272,13 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         assert not self.agent is None, "build() must be called first"
         weights = self.trainable_weights
         return np.sum( [ np.prod( w.get_shape() ) for w in weights ] )
-    
+
     @property
     def available_features_per_step(self) -> list:
         """ Returns the list of features available per time step (for the agent). The model must have been call()ed once """
         _log.verify( not self.agent is None, "Cannot call this function before model was built")
         return self.agent.available_features
-    
+
     @property
     def available_features_per_path(self) -> list:
         """ Returns the list of features available per time step (for montetary utilities). The model must have been call()ed once """
@@ -290,67 +290,67 @@ class VanillaDeepHedgingGym(tf.keras.Model):
         """ Returns the list of features used by the agent. The model must have been call()ed once """
         _log.verify( not self.agent is None, "Cannot call this function before model was built")
         return self.agent.public_features
-    
+
     @property
     def utility_features_used(self) -> list:
         """ Returns the list of features available per time step (for the agent). The model must have been call()ed once """
         _log.verify( not self.agent is None, "Cannot call this function before model was built")
         return self.utility.features
-    
+
     # -------------------
     # caching
     # -------------------
-    
+
     def create_cache( self ):
         """
         Create a dictionary which allows reconstructing the current model.
         The content of the dictionary are IDs to validate that we are reconstructing the same type of gym,
         weights of the gym and the optimizer, and the last learning rate of the optimizer.
-        
+
         Note: reconstruction of an optimizer state is not natively supported in TensorFlow. Below might not work perfectly.
         """
         assert not self.agent is None, "build() not called yet"
         opt_weights = self.optimizer.get_weights() if not getattr(self.optimizer,"get_weights",None) is None else None
         opt_config  = tf.keras.optimizers.serialize( self.optimizer )['config'] if not self.optimizer is None else None
-        
+
         if not opt_config is None and opt_weights is None:
             # tensorflow 2.11 abandons 'get_weights'
-            variables   = self.optimizer.variables()        
+            variables   = self.optimizer.variables()
             opt_weights = [ np.array( v ) for v in variables ]
-        
+
         # we compute a config ID for all parameters but the learning rate
         # That should work for most optimizers, but future optimizers may
         # rquire copying furhter variables
         id_config   = { k: opt_config[k] for k in opt_config if k != 'learning_rate' } if not opt_config is None else None
         opt_uid     = uniqueHash( id_config ) if not id_config is None else ""
         opt_weights = self.optimizer.get_weights() if TF_VERSION <= 210 else [ w.value() for w in self.optimizer.variables() ]
-        
+
         return dict( gym_uid       = self.unique_id,
                      gym_weights   = self.get_weights(),
                      opt_uid       = opt_uid,
                      opt_config    = opt_config,
                      opt_weights   = opt_weights
                    )
-                
+
     def restore_from_cache( self, cache ) -> bool:
         """
         Restore 'self' from cache.
-        Note that we have to call() this object before being able to use this function        
+        Note that we have to call() this object before being able to use this function
         This function returns False if the cached weights do not match the current architecture.
-        
+
         Note: reconstruction of an optimizer state is not natively supported in TensorFlow. Below might not work perfectly.
-        """        
+        """
         assert not self.agent is None, "build() not called yet"
         gym_uid     = cache['gym_uid']
         gym_weights = cache['gym_weights']
         opt_uid     = cache['opt_uid']
         opt_config  = cache['opt_config']
         opt_weights = cache['opt_weights']
-        
+
         self_opt_config = tf.keras.optimizers.serialize( self.optimizer )['config'] if not self.optimizer is None else None
         self_id_config  = { k: opt_config[k] for k in opt_config if k != 'learning_rate' } if not self_opt_config is None else None
         self_opt_uid    = uniqueHash( self_id_config ) if not self_opt_config is None else ""
-        
+
         # check that the objects correspond to the correct configs
         if gym_uid != self.unique_id:
             _log.warn( "Cache restoration error: provided cache object has gym ID %s vs current ID %s", gym_uid, self.unique_id)
@@ -369,9 +369,9 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             _log.warn( "Cache restoration error: provided cache gym weights were not compatible with the gym.\n%s", v)
             return False
         return True
-    
+
         if self.optimizer is None:
-            return True    
+            return True
         # set learning rate to last recoreded value
         if 'learning_rate' in opt_config:
             self.optimizer.learning_rate = opt_config['learning_rate']
@@ -384,6 +384,6 @@ class VanillaDeepHedgingGym(tf.keras.Model):
             _log.warn( "Cache restoration error: cached optimizer weights were not compatible with existing optimizer.\n%s%s", v)
             return False
 
-        
+
         return True
 

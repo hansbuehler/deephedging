@@ -12,20 +12,20 @@ from cdxbasics.util import uniqueHash, fmt_list
 from cdxbasics.config import Config, Float, Int
 from cdxbasics.logger import Logger
 import numpy as np
-
+"""
 import importlib as imp
 import packages.cdx_tf.cdx_tf.gym as _
 imp.reload(_)
 import packages.cdx_tf.cdx_tf.clip as _
 imp.reload(_)
-import packages.cdx_tf.cdx_tf.layers as _
+import packages.cdx_tf.cdx_tf.models as _
 imp.reload(_)
 import packages.cdx_tf.cdx_tf.monetary_utility as _
 imp.reload(_)
-
-from packages.cdx_tf.cdx_tf.util import tf, def_dtype, TF_VERSION, tf_back_flatten, tf_make_dim, tfCast
+"""
+from packages.cdx_tf.cdx_tf.util import tf, def_dtype, TF_VERSION, tf_make_dim, tfCast
 from packages.cdx_tf.cdx_tf.gym import Gym as cdxGym
-from packages.cdx_tf.cdx_tf.layers import DenseAgent, RecurrentAgent
+from packages.cdx_tf.cdx_tf.models import DenseAgent, RecurrentAgent
 from packages.cdx_tf.cdx_tf.clip import SoftClip
 from packages.cdx_tf.cdx_tf.monetary_utility import MonetaryUtility
 from packages.cdx_tf.cdx_tf.optimizer import create_optimizer
@@ -42,7 +42,7 @@ class VanillaDeepHedgingGym(cdxGym):
     Default_features_init = [ 'price' ]
     Default_features_main = Default_features_init + ['time_left', 'delta'  ]
 
-    CACHE_VERSION = "1.00.00"
+    CACHE_VERSION = "0.0.1"
     LOSS_NAME     = "loss"
 
     def __init__(self, config : Config, name : str = "VanillaDeepHedging", dtype : tf.DType = def_dtype, trainable : bool = True ):
@@ -263,22 +263,21 @@ class VanillaDeepHedgingGym(cdxGym):
                 features_per_path: requested features with dimensions [nSamples,M]
         """
         features             = data.get('features',{})
-
         features_per_step_i  = features.get('per_step', {})
         features_per_step    = {}
         for f in features_per_step_i:
             feature = features_per_step_i[f]
-            assert isinstance(feature, tf.Tensor), "Internal error: type %s found" % feature.__class__.__name__
+            assert isinstance(feature, tf.Tensor), "Internal error: type %s found" % type(feature).__name__
             _log.verify( len(feature.shape) >= 2, "data['features']['per_step']['%s']: expected tensor of at least dimension 2, found shape %s", f, feature.shape.as_list() )
             if not nSteps is None: _log.verify( feature.shape[1] == nSteps, "data['features']['per_step']['%s']: second dimension must match number of steps, %ld, found shape %s", f, nSteps, feature.shape.as_list() )
             features_per_step[f] = tf_make_dim( feature, 3 )
 
         features_per_path_i    = features.get('per_path', {})
         features_per_path      = {}
-        assert isinstance( features_per_path_i, dict), "Internal error: type %s found" % features_per_path_i.__class__.__name__
+        assert isinstance( features_per_path_i, dict), "Internal error: type %s found" % type(features_per_path_i).__name__
         for f in features_per_path_i:
             feature = features_per_path_i[f]
-            assert isinstance(feature, tf.Tensor), "Internal error: type %s found" % feature.__class__.__name__
+            assert isinstance(feature, tf.Tensor), "Internal error: type %s found" % type(feature).__name__
             features_per_path[f] = tf_make_dim( feature, target_dim=2 )
         return features_per_step, features_per_path
 
