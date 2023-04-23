@@ -98,8 +98,8 @@ class VanillaDeepHedgingGym(cdxGym):
         self.num_steps    = int( shapes['market']['hedges'][1] )
         self.agent        = RecurrentAgent( nOutput           = nInst,
                                             config            = self.config_agent,
-                                            def_features      = self.Default_features_main,
                                             init_config       = self.config_init_agent,
+                                            def_features      = self.Default_features_main,
                                             init_def_features = self.Default_features_init,
                                             init_def_width    = 25,
                                             name="main_agent", dtype=self.dtype, trainable=self.trainable )
@@ -242,19 +242,35 @@ class VanillaDeepHedgingGym(cdxGym):
             actions  = tf.stop_gradient( actions )                # [?,nSteps,nInst]
         )
 
+    # ----------------------------------------------------------------
+    # Utility function to allow calling the underlying agents
+    # ----------------------------------------------------------------
+
+    def extract_initial_features( self, data : dict ) -> dict:
+        """ Extract initial features """
+        nSteps            = int( data['market']['hedges'].shape[1] )
+        features_per_step, \
+        features_per_path = self._features( data, nSteps )
+
+        features_time_0 = {}
+        features_time_0.update( { f:features_per_path[f] for f in features_per_path } )
+        features_time_0.update( { f:features_per_step[f][:,0,:] for f in features_per_step})
+
+        return features_time_0
+
     # -------------------
     # internal
     # -------------------
 
     @staticmethod
-    def _features( data : dict, nSteps : int = None ) -> (dict, dict):
+    def _features( data : dict, nSteps : int ) -> (dict, dict):
         """
         Collect requested features and convert them into common shapes.
 
         Parameters
         ----------
             data: essentially world.tf_data
-            nSteps: for validation. Can be left None to ignore.
+            nSteps: for validation.
 
         Returns
         -------
@@ -269,7 +285,7 @@ class VanillaDeepHedgingGym(cdxGym):
             feature = features_per_step_i[f]
             assert isinstance(feature, tf.Tensor), "Internal error: type %s found" % type(feature).__name__
             _log.verify( len(feature.shape) >= 2, "data['features']['per_step']['%s']: expected tensor of at least dimension 2, found shape %s", f, feature.shape.as_list() )
-            if not nSteps is None: _log.verify( feature.shape[1] == nSteps, "data['features']['per_step']['%s']: second dimension must match number of steps, %ld, found shape %s", f, nSteps, feature.shape.as_list() )
+            _log.verify( feature.shape[1] == nSteps, "data['features']['per_step']['%s']: second dimension must match number of steps, %ld, found shape %s", f, nSteps, feature.shape.as_list() )
             features_per_step[f] = tf_make_dim( feature, 3 )
 
         features_per_path_i    = features.get('per_path', {})
