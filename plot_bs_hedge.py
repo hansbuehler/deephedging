@@ -1,6 +1,5 @@
 
 from deephedging.base import npCast, perct_exp, mean
-from deephedging.trainer import train_utillity
 from cdxbasics.dynaplot import figure
 from cdxbasics.config import Config
 import numpy as np
@@ -180,8 +179,7 @@ def plot_blackscholes( world, gym, config, strike : float = 1., iscall : bool = 
     tconfig.train.tf_verbose = 0
 
     print("Running tensorflow to compute utility of BS strategy ...", end='')
-    utilityBS = train_utillity( gym.utility, world, payoff = payoff, pnl = bspnl, cost = bscost, config=tconfig )
-    utilityBS = utilityBS[0]
+    utilityBS = gym.utility.compute_stateless_utility(  payoff = payoff )
     print("done; result %g" % utilityBS)
 
     # bin pnl
